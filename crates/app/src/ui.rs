@@ -173,6 +173,33 @@ fn authentication_seconds(minutes: &str) -> Result<u64> {
     minutes.parse::<u64>().ok().and_then(|value| value.checked_mul(60)).ok_or(Failure::Input)
 }
 
+fn curve_selector(ui: &mut egui::Ui, curve: &mut Curve) -> egui::Response {
+    egui::Frame::new().fill(theme::SEARCH).corner_radius(8).inner_margin(3)
+        .show(ui, |ui| {
+            ui.spacing_mut().item_spacing.x = 2.0;
+            ui.horizontal(|ui| {
+                for (value, label, hint) in [
+                    (Curve::Secp256k1, "Ethereum", "secp256k1"),
+                    (Curve::Ed25519, "Solana", "Ed25519 · SLIP-0010"),
+                ] {
+                    let selected = *curve == value;
+                    let response = ui.add(egui::Button::new(label).selected(selected)
+                        .min_size(egui::vec2(110.0, 28.0))
+                        .fill(if selected { egui::Color32::WHITE } else { egui::Color32::TRANSPARENT })
+                        .stroke(egui::Stroke::NONE).corner_radius(6))
+                        .on_hover_text(hint);
+                    response.widget_info(|| egui::WidgetInfo::selected(
+                        egui::WidgetType::RadioButton, ui.is_enabled(), selected, label,
+                    ));
+                    theme::focus_ring(ui, response.rect, response.has_focus());
+                    if response.clicked() {
+                        *curve = value;
+                    }
+                }
+            });
+        }).response
+}
+
 fn recovery_words(ui: &mut egui::Ui, phrase: &str) {
     let columns = if ui.available_width() < 340.0 { 2 } else { 3 };
     let cell_width = ((ui.available_width() - 8.0 * (columns - 1) as f32) / columns as f32).floor();
@@ -533,12 +560,7 @@ impl WalletApp {
             }
             Stage::Details => {
                 let previous = self.curve;
-                ui.horizontal(|ui| {
-                    ui.selectable_value(&mut self.curve, Curve::Secp256k1, "Ethereum")
-                        .on_hover_text("secp256k1");
-                    ui.selectable_value(&mut self.curve, Curve::Ed25519, "Solana")
-                        .on_hover_text("Ed25519 · SLIP-0010");
-                });
+                curve_selector(ui, &mut self.curve);
                 ui.add_space(8.0);
                 if self.curve != previous {
                     self.expected.clear();
@@ -582,7 +604,7 @@ impl WalletApp {
                     }
                 }
                 if back {
-                    self.back();
+                    self.navigate_back();
                 }
             }
             Stage::Secrets => {
@@ -1052,6 +1074,45 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn curve_segments_fit_the_form_and_switch_both_ways() {
+        for width in [280.0, 420.0] {
+            let ctx = egui::Context::default();
+            theme::configure(&ctx);
+            let mut curve = Curve::Secp256k1;
+            let mut bounds = egui::Rect::NOTHING;
+            for target in [None, Some(Curve::Ed25519), Some(Curve::Secp256k1)] {
+                let mut input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO, egui::vec2(width + 32.0, 100.0),
+                    )),
+                    ..Default::default()
+                };
+                if let Some(target) = target {
+                    let pos = egui::pos2(bounds.left() + bounds.width()
+                        * if target == Curve::Ed25519 { 0.75 } else { 0.25 }, bounds.center().y);
+                    input.events.push(egui::Event::PointerMoved(pos));
+                    for pressed in [true, false] {
+                        input.events.push(egui::Event::PointerButton {
+                            pos, button: egui::PointerButton::Primary,
+                            pressed, modifiers: egui::Modifiers::NONE,
+                        });
+                    }
+                }
+                let _ = ctx.run(input, |ctx| {
+                    egui::CentralPanel::default().frame(egui::Frame::new().inner_margin(16))
+                        .show(ctx, |ui| {
+                            bounds = curve_selector(ui, &mut curve).rect;
+                            assert!(ui.max_rect().contains_rect(bounds));
+                        });
+                });
+                if let Some(target) = target {
+                    assert!(curve == target);
+                }
+            }
+        }
+    }
+
     #[test]
     fn shuffled_backup_requires_every_word_at_its_original_number() {
         let phrase = "abandon amount liar amount expire adjust cage candy arch gather drum buyer";

@@ -170,7 +170,7 @@ impl WalletApp {
                     ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
                     ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
                     ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
-                    ui.menu_button("•••", |ui| {
+                    let more = ui.menu_button("•••", |ui| {
                         if ui.button("Settings…").clicked() {
                             self.wipe_draft();
                             self.message.clear();
@@ -210,12 +210,17 @@ impl WalletApp {
                             );
                             ui.close();
                         }
-                    });
+                    }).response;
+                    more.widget_info(|| egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button, ui.is_enabled(), "More actions",
+                    ));
+                    more.on_hover_text("More actions");
                 });
-                if theme::toolbar_button(ui, "+")
-                    .on_hover_text("Add wallet")
-                    .clicked()
-                {
+                let add = theme::toolbar_button(ui, "+");
+                add.widget_info(|| egui::WidgetInfo::labeled(
+                    egui::WidgetType::Button, ui.is_enabled(), "Add wallet",
+                ));
+                if add.on_hover_text("Add wallet").clicked() {
                     self.wipe_draft();
                     self.message.clear();
                     self.stage = Stage::Welcome;

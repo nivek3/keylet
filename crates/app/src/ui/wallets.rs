@@ -81,10 +81,16 @@ impl WalletApp {
                 theme::app_icon(ui);
                 ui.add_space(16.0);
                 ui.label(
-                    RichText::new("Select a wallet")
+                    RichText::new(if self.wallets.is_empty() { "Your wallets, kept private" } else { "No matching wallets" })
                         .size(17.0)
-                        .color(theme::MUTED),
+                        .strong(),
                 );
+                ui.add_space(6.0);
+                theme::hint(ui, if self.wallets.is_empty() {
+                    "Use + to create or import a wallet."
+                } else {
+                    "Try another wallet name or address."
+                });
             });
             return;
         };
@@ -158,8 +164,12 @@ impl WalletApp {
     pub(super) fn wallet_controls(&mut self, ui: &mut egui::Ui) {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.scope(|ui| {
-                    ui.spacing_mut().interact_size = egui::vec2(24.0, 24.0);
-                    ui.spacing_mut().button_padding = egui::vec2(4.0, 3.0);
+                    ui.spacing_mut().interact_size = egui::vec2(28.0, 28.0);
+                    ui.spacing_mut().button_padding = egui::vec2(6.0, 4.0);
+                    ui.visuals_mut().widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
+                    ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                    ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                    ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
                     ui.menu_button("•••", |ui| {
                         if ui.button("Settings…").clicked() {
                             self.wipe_draft();

@@ -907,24 +907,24 @@ impl eframe::App for WalletApp {
         ctx.request_repaint_after(Duration::from_millis(250));
         if !self.cli_import && !self.cli_delete {
             egui::TopBottomPanel::top("navigation")
-                .frame(egui::Frame::new().fill(theme::CANVAS).inner_margin(egui::Margin::symmetric(12, 8)))
+                .frame(egui::Frame::new().fill(theme::CANVAS).inner_margin(egui::Margin::symmetric(12, 6)))
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
+                        ui.set_min_height(28.0);
+                        ui.spacing_mut().item_spacing.x = 6.0;
                         let can_back = self.stage.previous().is_some()
                             || self.stage == Stage::Wallets && (!self.sidebar_visible
                                 || ui.available_width() < 608.0 && self.show_wallet_details);
-                        if ui.add_enabled_ui(can_back, |ui| theme::navigation_button(ui, "Back", false))
-                            .inner.clicked() {
+                        if can_back && theme::navigation_button(ui, "Back", false).clicked() {
                             self.navigate_back();
                         }
-                        if ui.add_enabled_ui(self.stage == Stage::Wallets, |ui| {
-                            theme::navigation_button(ui, if self.sidebar_visible { "Hide sidebar" } else { "Show sidebar" }, true)
-                        }).inner.clicked() {
+                        if self.stage == Stage::Wallets && theme::navigation_button(ui,
+                            if self.sidebar_visible { "Hide sidebar" } else { "Show sidebar" }, true).clicked() {
                             self.sidebar_visible = !self.sidebar_visible;
                             self.show_wallet_details = !self.sidebar_visible;
                         }
                         ui.add_space(6.0);
-                        ui.add(egui::Label::new(egui::RichText::new(self.title()).strong()).truncate());
+                        ui.add(egui::Label::new(egui::RichText::new(self.title()).size(15.0).strong()).truncate());
                         if self.stage == Stage::Wallets {
                             self.wallet_controls(ui);
                         }

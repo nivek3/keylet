@@ -2,17 +2,17 @@ use eframe::egui::{
     self, Align, Color32, FontId, Frame, Layout, Margin, RichText, Stroke, TextStyle, Ui,
 };
 
-pub const CANVAS: Color32 = Color32::from_rgb(245, 245, 247);
+pub const CANVAS: Color32 = Color32::from_rgb(246, 246, 246);
 pub const INK: Color32 = Color32::from_rgb(29, 29, 31);
 pub const MUTED: Color32 = Color32::from_rgb(110, 110, 115);
-pub const BORDER: Color32 = Color32::from_rgb(225, 225, 229);
-pub const ACCENT: Color32 = Color32::from_rgb(0, 122, 255);
-pub const SOFT: Color32 = Color32::from_rgb(235, 244, 255);
-pub const SEARCH: Color32 = Color32::from_rgb(234, 234, 237);
-pub const SELECTED: Color32 = Color32::from_rgb(226, 228, 233);
+pub const BORDER: Color32 = Color32::from_rgb(220, 220, 220);
+pub const ACCENT: Color32 = Color32::from_rgb(99, 99, 102);
+pub const SOFT: Color32 = Color32::from_rgb(238, 238, 240);
+pub const SEARCH: Color32 = Color32::from_rgb(232, 232, 232);
+pub const SELECTED: Color32 = Color32::from_rgb(224, 224, 224);
 pub const DANGER: Color32 = Color32::from_rgb(190, 44, 40);
 pub const DANGER_SOFT: Color32 = Color32::from_rgb(255, 245, 245);
-pub const CONTROL: Color32 = Color32::from_rgb(238, 238, 241);
+pub const CONTROL: Color32 = Color32::WHITE;
 pub const WARNING_SOFT: Color32 = Color32::from_rgb(255, 247, 225);
 pub const WARNING_INK: Color32 = Color32::from_rgb(120, 80, 0);
 
@@ -175,7 +175,7 @@ pub fn public_field(ui: &mut Ui, title: &str, text: &mut String, limit: usize) {
 pub fn app_icon(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(84.0, 84.0), egui::Sense::hover());
     let p = ui.painter();
-    let tile = egui::Rect::from_min_size(rect.min, egui::vec2(72.0, 72.0));
+    let tile = egui::Rect::from_center_size(rect.center(), egui::vec2(72.0, 72.0));
     p.rect_filled(
         tile.translate(egui::vec2(0.0, 3.0)),
         17,
@@ -212,9 +212,11 @@ pub fn launch(ui: &mut Ui, label: &str, primary: bool) -> egui::Response {
 }
 pub fn toolbar_button(ui: &mut Ui, label: &str) -> egui::Response {
     ui.scope(|ui| {
-        ui.spacing_mut().button_padding = egui::vec2(3.0, 3.0);
-        ui.spacing_mut().interact_size = egui::vec2(24.0, 24.0);
-        button(ui, label, egui::vec2(24.0, 24.0), None)
+        ui.spacing_mut().button_padding = egui::vec2(6.0, 4.0);
+        ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::NONE;
+        ui.visuals_mut().widgets.active.bg_stroke = Stroke::NONE;
+        ui.add(egui::Button::new(RichText::new(label).size(18.0).color(MUTED))
+            .min_size(egui::vec2(28.0, 28.0)).frame_when_inactive(false))
     }).inner
 }
 pub fn search_icon(ui: &mut Ui) {
@@ -231,17 +233,16 @@ pub fn search_icon(ui: &mut Ui) {
     );
 }
 pub fn navigation_button(ui: &mut Ui, label: &str, sidebar: bool) -> egui::Response {
-    let response = button(ui, "", egui::vec2(28.0, 26.0), None);
+    let response = toolbar_button(ui, "");
     let rect = egui::Rect::from_center_size(response.rect.center(), egui::vec2(15.0, 13.0));
-    let stroke = Stroke::new(1.3_f32, if ui.is_enabled() { INK } else { MUTED });
+    let stroke = Stroke::new(1.5_f32, MUTED);
     let painter = ui.painter();
     if sidebar {
         painter.rect_stroke(rect, 2, stroke, egui::StrokeKind::Inside);
         let x = rect.left() + 5.0;
         painter.line_segment([egui::pos2(x, rect.top()), egui::pos2(x, rect.bottom())], stroke);
     } else {
-        let left = egui::pos2(rect.left() + 1.0, rect.center().y);
-        painter.line_segment([left, egui::pos2(rect.right(), rect.center().y)], stroke);
+        let left = egui::pos2(rect.center().x - 3.0, rect.center().y);
         painter.line_segment([left, left + egui::vec2(6.0, -6.0)], stroke);
         painter.line_segment([left, left + egui::vec2(6.0, 6.0)], stroke);
     }
@@ -253,7 +254,7 @@ pub fn account_row(ui: &mut Ui, title: &str, address: Option<&str>) {
         .inner_margin(Margin::symmetric(0, 8))
         .show(ui, |ui| {
             ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                ui.label(RichText::new(title).size(12.0).color(MUTED));
+                ui.label(RichText::new(title).size(12.0).strong());
                 ui.add(egui::Label::new(
                     RichText::new(address.unwrap_or("Not synced"))
                         .monospace().size(12.0).color(INK),
@@ -289,7 +290,7 @@ pub fn recovery_mask(ui: &mut Ui, height: f32) -> egui::Response {
 pub fn avatar(ui: &mut Ui, name: &str, size: f32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), egui::Sense::hover());
     ui.painter()
-        .rect_filled(rect, (size * 0.22) as u8, Color32::from_rgb(130, 136, 148));
+        .rect_filled(rect, (size * 0.22) as u8, Color32::from_rgb(142, 142, 147));
     let letter = name
         .chars()
         .next()
@@ -300,7 +301,7 @@ pub fn avatar(ui: &mut Ui, name: &str, size: f32) {
         rect.center(),
         egui::Align2::CENTER_CENTER,
         letter,
-        FontId::proportional(size * 0.65),
+        FontId::proportional(size * 0.55),
         Color32::WHITE,
     );
 }
@@ -312,7 +313,7 @@ pub fn wallet_heading(ui: &mut Ui, name: &str) -> egui::Response {
             egui::vec2(ui.available_width(), 36.0),
             Layout::left_to_right(Align::Center),
             |ui| {
-                ui.add(egui::Label::new(RichText::new(name).size(18.0).strong()).wrap());
+                ui.add(egui::Label::new(RichText::new(name).size(20.0).strong()).wrap());
             },
         );
     })
@@ -321,38 +322,40 @@ pub fn wallet_heading(ui: &mut Ui, name: &str) -> egui::Response {
 
 pub fn wallet_row(ui: &mut Ui, name: &str, subtitle: &str, selected: bool) -> egui::Response {
     let width = ui.available_width();
-    let row = Frame::new()
-        .fill(if selected {
-            SELECTED
-        } else {
-            Color32::TRANSPARENT
-        })
-        .corner_radius(8)
+    let mut frame = Frame::new()
+        .corner_radius(6)
         .inner_margin(Margin::symmetric(8, 6))
-        .show(ui, |ui| {
-            ui.set_width((width - 16.0).max(80.0));
-            ui.horizontal(|ui| {
-                ui.set_height(32.0);
-                avatar(ui, name, 28.0);
-                ui.add_space(4.0);
-                ui.allocate_ui_with_layout(
-                    egui::vec2(ui.available_width(), 32.0),
-                    Layout::top_down(Align::Min),
-                    |ui| {
-                        ui.add(
-                            egui::Label::new(RichText::new(name).size(13.0).strong()).truncate(),
-                        );
-                        ui.add(
-                            egui::Label::new(RichText::new(subtitle).size(11.0).color(MUTED))
-                                .truncate(),
-                        );
-                    },
-                );
-            });
-        })
-        .response
-        .interact(egui::Sense::click());
-    row.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), name));
+        .begin(ui);
+    {
+        let ui = &mut frame.content_ui;
+        ui.set_width((width - 16.0).max(80.0));
+        ui.horizontal(|ui| {
+            ui.set_height(32.0);
+            avatar(ui, name, 28.0);
+            ui.add_space(4.0);
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), 32.0),
+                Layout::top_down(Align::Min),
+                |ui| {
+                    ui.add(
+                        egui::Label::new(RichText::new(name).size(13.0).strong()).truncate(),
+                    );
+                    ui.add(
+                        egui::Label::new(RichText::new(subtitle).size(11.0).color(MUTED))
+                            .truncate(),
+                    );
+                },
+            );
+        });
+    }
+    let row = ui.allocate_rect(frame.frame.outer_rect(frame.content_ui.min_rect()), egui::Sense::click());
+    let hover = ui.ctx().animate_bool(row.id.with("hover"), row.hovered());
+    frame.frame.fill = if selected { SELECTED } else { SEARCH.gamma_multiply(hover) };
+    frame.paint(ui);
+    focus_ring(ui, row.rect, row.has_focus());
+    row.widget_info(|| egui::WidgetInfo::selected(
+        egui::WidgetType::SelectableLabel, ui.is_enabled(), selected, name,
+    ));
     row.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 pub fn focus_ring(ui: &Ui, rect: egui::Rect, focused: bool) {
@@ -470,6 +473,34 @@ mod tests {
                         assert!(row.rect.width() <= width + 1.0);
                         assert!(row.rect.height() >= 44.0);
                     });
+            });
+        }
+    }
+    #[test]
+    fn wallet_row_can_be_activated_with_the_keyboard() {
+        let ctx = egui::Context::default();
+        configure(&ctx);
+        for activate in [false, true] {
+            let mut input = egui::RawInput::default();
+            if activate {
+                input.events.push(egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            }
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    let row = wallet_row(ui, "Public fixture", "0x123456…abcdef", false);
+                    if activate {
+                        assert!(row.has_focus());
+                        assert!(row.clicked());
+                    } else {
+                        row.request_focus();
+                    }
+                });
             });
         }
     }

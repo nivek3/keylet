@@ -17,7 +17,7 @@ class BridgePackagingTests(unittest.TestCase):
         self.root = pathlib.Path(folder.name)
         (self.root / "scripts").mkdir()
         shutil.copyfile(SCRIPT, self.root / "scripts/build-bridge.sh")
-        self.output = self.root / "node/dist/keychain-wallet.node"
+        self.output = self.root / "node/dist/keylet.node"
         self.output.parent.mkdir(parents=True)
         self.output.write_text("previous addon")
         tools = self.root / "tools"

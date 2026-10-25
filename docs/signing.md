@@ -25,7 +25,7 @@ bash scripts/build-native.sh \
   'com.example.keychain-wallet'
 ```
 
-The script reads the public profile metadata, validates its expiry and authorization, builds the Rust executable, embeds the profile, signs with Hardened Runtime, and verifies the signature. The profile's App Identifier Prefix determines the private access group; it is not assumed to equal Team ID. The output is `build/keychain-wallet.app`. An existing output is replaced only after the new bundle passes signature verification. Both bundle version fields follow `crates/app/Cargo.toml`; use a numeric `major.minor.patch` version.
+The script reads the public profile metadata, validates its expiry and authorization, builds the Rust executable, embeds the profile, signs with Hardened Runtime, and verifies the signature. The profile's App Identifier Prefix determines the private access group; it is not assumed to equal Team ID. The output is `build/Keylet.app`. An existing output is replaced only after the new bundle passes signature verification. Both bundle version fields follow `crates/app/Cargo.toml`; use a numeric `major.minor.patch` version.
 
 The default build targets the host Mac. To build a Universal app for Apple Silicon and Intel, install both Rust targets and append `--universal` to the build command:
 
@@ -38,15 +38,17 @@ bash scripts/build-native.sh \
 ```
 
 ```sh
-open build/keychain-wallet.app
-build/keychain-wallet.app/Contents/MacOS/keychain-wallet check-signing
+open build/Keylet.app
+build/Keylet.app/Contents/MacOS/keylet check-signing
 ```
 
 `check-signing` validates public signing configuration. It does not establish that real Keychain authentication succeeds. Use an unfunded test wallet in a logged-in graphical session to check authentication and cancellation.
 
-For local Node use, the SDK discovers `build/keychain-wallet.app` from this source checkout. For a separate installation, place the complete app in `~/Applications` or `/Applications`, or specify the executable's absolute path as `helperPath`.
+For local Node use, the SDK discovers `build/Keylet.app` from this source checkout. For a separate installation, place the complete app in `~/Applications` or `/Applications`, or specify the executable's absolute path as `helperPath`.
 
 ## Renewal
+
+The app is `Keylet.app`, with executable `Contents/MacOS/keylet`. The Keychain service and `Library/Application Support/KeychainWallet` directory keep their existing storage identifiers to preserve local wallets and settings. Reuse the same signing identity, bundle ID, and authorized access group when rebuilding.
 
 Renew Personal Team assets through Xcode, then rerun the script with the current profile and matching identity. Keep the bundle ID and authorized access group stable when retaining saved wallets. Profiles do not back up wallet data; keep an independent offline recovery backup.
 
@@ -66,7 +68,7 @@ See [Apple Developer ID distribution](https://developer.apple.com/developer-id/)
 
 ## Manual macOS release CI
 
-[Release macOS App](../.github/workflows/release-app.yml) follows cc-switch's [macOS release flow](https://github.com/farion1231/cc-switch/blob/main/.github/workflows/release.yml): merge both architectures, sign, notarize, staple, and verify the app, then create, sign, notarize, and staple a DMG. This repository uses its existing Cargo build scripts and macOS's built-in `hdiutil`. It ships `keychain-wallet-v<version>-macOS-universal.dmg`, containing `keychain-wallet.app` and an Applications shortcut, plus `SHA256SUMS.txt` calculated after stapling. Both the app and DMG use the same Developer ID Application identity; no additional certificate or Secret is required. See [Apple's packaging guidance](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution).
+[Release macOS App](../.github/workflows/release-app.yml) follows cc-switch's [macOS release flow](https://github.com/farion1231/cc-switch/blob/main/.github/workflows/release.yml): merge both architectures, sign, notarize, staple, and verify the app, then create, sign, notarize, and staple a DMG. This repository uses its existing Cargo build scripts and macOS's built-in `hdiutil`. It ships `Keylet-v<version>-macOS-universal.dmg`, containing `Keylet.app` and an Applications shortcut, plus `SHA256SUMS.txt` calculated after stapling. Both the app and DMG use the same Developer ID Application identity; no additional certificate or Secret is required. See [Apple's packaging guidance](https://developer.apple.com/documentation/xcode/packaging-mac-software-for-distribution).
 
 Only `workflow_dispatch` triggers this workflow; pushing a branch or tag does not publish anything. The default is a draft GitHub Release. No signing credentials are supplied by the repository, and missing configuration stops the job before building.
 
@@ -102,7 +104,7 @@ To release:
 1. Commit the workflow, scripts, and desired `crates/app/Cargo.toml` version. Keep the workspace lockfile consistent with any package version change. The workflow must be on the default branch to appear in Actions, and the release tag must include the updated build scripts.
 2. Create and push a tag such as `v0.1.0` pointing to the commit to build. Only `vMAJOR.MINOR.PATCH` tags are supported; the tag must match `wallet-app`'s package version.
 3. Open **Actions → Release macOS App → Run workflow**, enter that existing tag, and keep `draft` enabled. The checkout uses this tag, independently of the branch selected for the workflow.
-4. Download `keychain-wallet-v0.1.0-macOS-universal.dmg` from the workflow artifacts or draft Release. Open it and drag `keychain-wallet.app` to Applications. Check it on a separate Mac, then publish the draft in GitHub Releases. Disable `draft` at dispatch only when you intend to publish immediately after successful verification.
+4. Download `Keylet-v0.1.0-macOS-universal.dmg` from the workflow artifacts or draft Release. Open it and drag `Keylet.app` to Applications. Check it on a separate Mac, then publish the draft in GitHub Releases. Disable `draft` at dispatch only when you intend to publish immediately after successful verification.
 
 The macOS job verifies both binary architectures, the app's public signing configuration, and accepted notarization, stapled tickets, and Gatekeeper assessment for both the app and DMG. It also mounts the final DMG read-only and verifies the Applications shortcut and the embedded app's architectures, signature, ticket, and Gatekeeper assessment. It does not exercise interactive Keychain authentication or run the test suite; run the checks in [testing](testing.md) before selecting the release commit. To release the npm package separately, use `release-node.yml` and follow the [Node release instructions](../node/README.md#manual-github-actions-release).
 

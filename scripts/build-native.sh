@@ -17,8 +17,8 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 version=$(cargo metadata --no-deps --format-version 1 --locked --manifest-path "$root/Cargo.toml" |
   /usr/bin/python3 -c 'import json, sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"] == "wallet-app"))')
 mkdir -p "$root/build"
-staging=$(mktemp -d "$root/build/.keychain-wallet.XXXXXXXX")
-app="$staging/keychain-wallet.app"
+staging=$(mktemp -d "$root/build/.Keylet.XXXXXXXX")
+app="$staging/Keylet.app"
 mkdir -p "$app/Contents/MacOS"
 # The decoded profile contains signing metadata, never wallet secrets.
 /usr/bin/security cms -D -i "$profile" -o "${app%/*}/profile.plist"
@@ -31,19 +31,19 @@ if [[ "${4:-}" == '--universal' ]]; then
   for target in aarch64-apple-darwin x86_64-apple-darwin; do
     cargo build --release --locked --manifest-path "$root/Cargo.toml" -p wallet-app --target "$target"
   done
-  lipo -create "$root/target/aarch64-apple-darwin/release/keychain-wallet" \
-    "$root/target/x86_64-apple-darwin/release/keychain-wallet" \
-    -output "$app/Contents/MacOS/keychain-wallet"
-  lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/keychain-wallet"
+  lipo -create "$root/target/aarch64-apple-darwin/release/keylet" \
+    "$root/target/x86_64-apple-darwin/release/keylet" \
+    -output "$app/Contents/MacOS/keylet"
+  lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/keylet"
 else
   cargo build --release --locked --manifest-path "$root/Cargo.toml" -p wallet-app
-  cp "$root/target/release/keychain-wallet" "$app/Contents/MacOS/keychain-wallet"
+  cp "$root/target/release/keylet" "$app/Contents/MacOS/keylet"
 fi
 
 /usr/bin/codesign --force --sign "$identity" --options runtime --timestamp \
   --entitlements "${app%/*}/entitlements.plist" "$app"
 /usr/bin/codesign --verify --strict --verbose=2 "$app"
-output="$root/build/keychain-wallet.app"
+output="$root/build/Keylet.app"
 if [[ -e "$output" ]]; then
   mv "$output" "$staging/previous.app"
 fi

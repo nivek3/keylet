@@ -4,7 +4,7 @@ import { getKeyPair } from '../src/index.js';
 
 // Filesystem lookup and path resolution now have Rust unit tests; Node checks the public boundary.
 test('Rust bridge rejects invalid public selection before helper discovery', { skip: process.platform !== 'darwin' }, async () => {
-  const base = { name: 'test', curve: 'secp256k1', helperPath: '/definitely-missing-keychain-wallet-helper' };
+  const base = { name: 'test', curve: 'secp256k1', helperPath: '/definitely-missing-keylet-helper' };
   for (const change of [
     ...[-1, Number.MAX_SAFE_INTEGER + 1, 0.5, NaN, Infinity, '300', null].map(authenticationTtl => ({ authenticationTtl })),
     { curve: undefined }, { curve: 'p256' }, { curve: null },

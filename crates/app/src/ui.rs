@@ -1056,7 +1056,7 @@ pub fn run(
         ..Default::default()
     };
     eframe::run_native(
-        "keychain-wallet",
+        "Keylet",
         options,
         Box::new(move |cc| {
             theme::configure(&cc.egui_ctx);

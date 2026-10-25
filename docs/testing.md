@@ -20,7 +20,7 @@ Use an unfunded test wallet and complete authentication locally. Check creation,
 
 ## npm release artifact
 
-Follow [the Node release steps](../node/README.md#development-and-publishing) to build a universal tarball. Install the tarball in a clean Node project; do not use a source-directory symlink for this check. Confirm that importing the package works and an invalid wallet selection is rejected before helper discovery. Check the tarball file list for only package metadata, READMEs, `dist/index.js`, `dist/index.d.ts`, and `dist/keychain-wallet.node`. Run the public-fixture integration tests on both Apple Silicon and Intel before claiming support is verified on both.
+Follow [the Node release steps](../node/README.md#development-and-publishing) to build a universal tarball. Install the tarball in a clean Node project; do not use a source-directory symlink for this check. Confirm that importing the package works and an invalid wallet selection is rejected before helper discovery. Check the tarball file list for only package metadata, READMEs, `dist/index.js`, `dist/index.d.ts`, and `dist/keylet.node`. Run the public-fixture integration tests on both Apple Silicon and Intel before claiming support is verified on both.
 
 Interactive clipboard regression: copy a test phrase, return to the wallet list, then open Sync from Keychain and leave authentication pending. The app's clipboard copy must already be cleared. New unrelated clipboard contents must remain untouched.
 

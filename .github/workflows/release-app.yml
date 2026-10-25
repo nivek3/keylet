@@ -108,7 +108,7 @@ jobs:
         run: |
           bash scripts/build-native.sh "$APPLE_SIGNING_IDENTITY" \
             "$RUNNER_TEMP/wallet.provisionprofile" "$APPLE_BUNDLE_ID" --universal
-          build/keychain-wallet.app/Contents/MacOS/keychain-wallet check-signing
+          build/Keylet.app/Contents/MacOS/keylet check-signing
 
       - name: Notarize and staple app
         timeout-minutes: 30
@@ -117,7 +117,7 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          app=build/keychain-wallet.app
+          app=build/Keylet.app
           ditto -c -k --sequesterRsrc --keepParent "$app" "$RUNNER_TEMP/wallet-notarization.zip"
           xcrun notarytool submit "$RUNNER_TEMP/wallet-notarization.zip" \
             --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
@@ -132,14 +132,14 @@ jobs:
       - name: Create and sign DMG
         run: |
           mkdir -p release-assets
-          dmg="release-assets/keychain-wallet-${RELEASE_TAG}-macOS-universal.dmg"
+          dmg="release-assets/Keylet-${RELEASE_TAG}-macOS-universal.dmg"
           staging=$(mktemp -d "$RUNNER_TEMP/wallet-dmg.XXXXXXXX")
           trap 'rm -rf "$staging"' EXIT
-          ditto build/keychain-wallet.app "$staging/keychain-wallet.app"
+          ditto build/Keylet.app "$staging/Keylet.app"
           # The local build uses umask 077; distributed apps must be readable by other users.
           chmod -R a+rX "$staging"
           ln -s /Applications "$staging/Applications"
-          hdiutil create -volname keychain-wallet -srcfolder "$staging" -fs HFS+ -format UDZO "$dmg"
+          hdiutil create -volname Keylet -srcfolder "$staging" -fs HFS+ -format UDZO "$dmg"
           codesign --sign "$APPLE_SIGNING_IDENTITY" --timestamp --identifier "${APPLE_BUNDLE_ID}.dmg" "$dmg"
           codesign --verify --strict --verbose=2 "$dmg"
           hdiutil verify "$dmg"
@@ -151,7 +151,7 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          dmg="release-assets/keychain-wallet-${RELEASE_TAG}-macOS-universal.dmg"
+          dmg="release-assets/Keylet-${RELEASE_TAG}-macOS-universal.dmg"
           xcrun notarytool submit "$dmg" \
             --apple-id "$APPLE_ID" --password "$APPLE_PASSWORD" --team-id "$APPLE_TEAM_ID" \
             --wait --timeout 25m --output-format json | tee "$RUNNER_TEMP/wallet-dmg-notarization.json"
@@ -164,14 +164,14 @@ jobs:
 
       - name: Verify final DMG contents and generate checksum
         run: |
-          dmg="release-assets/keychain-wallet-${RELEASE_TAG}-macOS-universal.dmg"
+          dmg="release-assets/Keylet-${RELEASE_TAG}-macOS-universal.dmg"
           mount_point=$(mktemp -d "$RUNNER_TEMP/wallet-dmg-mount.XXXXXXXX")
           trap 'hdiutil detach "$mount_point" >/dev/null 2>&1 || true; rmdir "$mount_point"' EXIT
           hdiutil attach "$dmg" -readonly -noautoopen -mountpoint "$mount_point"
           test -L "$mount_point/Applications"
           test "$(readlink "$mount_point/Applications")" = /Applications
-          app="$mount_point/keychain-wallet.app"
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/keychain-wallet"
+          app="$mount_point/Keylet.app"
+          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/keylet"
           codesign --verify --strict --verbose=2 "$app"
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=2 "$app"
@@ -184,7 +184,7 @@ jobs:
       - name: Upload release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: keychain-wallet-${{ inputs.tag }}-macOS
+          name: Keylet-${{ inputs.tag }}-macOS
           path: release-assets/*
           if-no-files-found: error
 
@@ -195,7 +195,7 @@ jobs:
           RELEASE_DRAFT: ${{ inputs.draft }}
         run: |
           gh release create "$RELEASE_TAG" release-assets/* --verify-tag \
-            --title "keychain-wallet $RELEASE_TAG" --generate-notes --draft="$RELEASE_DRAFT"
+            --title "Keylet $RELEASE_TAG" --generate-notes --draft="$RELEASE_DRAFT"
 
       - name: Clean up signing assets
         if: always()

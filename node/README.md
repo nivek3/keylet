@@ -1,19 +1,28 @@
-# keychain-wallet — Node.js
+# Keylet Node.js SDK
 
-**English** | [中文](README_ZH.md)
+**English** | [中文](README_ZH.md) · [Keylet overview](../README.md) · [Build and signing](../docs/signing.md)
 
-A local macOS key provider backed by the signed `keychain-wallet.app`. The napi-rs bridge returns only the selected public/private key pair after macOS authentication. Supports secp256k1 and SLIP-0010 Ed25519. Requires macOS 14+, Node.js 22+, and a separately built, correctly signed app.
+`keylet` lets Node.js scripts request a derived key pair from the signed macOS app `Keylet.app`. The app authenticates with Touch ID or your Mac password before accessing the recovery phrase in Keychain. Supports secp256k1 and SLIP-0010 Ed25519.
 
-This is a source preview; an npm release has not yet been verified. For now, build as described below and install with `npm install /absolute/path/keychain-wallet/node`. After publication:
+Requires macOS 14+, Node.js 22+, and a separately built, correctly signed app. Returned private keys are controlled by the calling process; never log or persist them.
+
+## Install from source
+
+**Not released yet.** Build from the source checkout instead of installing from the npm registry. First [build and sign Keylet](../README.md#try-it-from-source), then run from the repository root:
 
 ```sh
-npm install keychain-wallet
+pnpm --dir node install --frozen-lockfile --ignore-scripts
+pnpm --dir node run build
 ```
 
-The release script produces a native addon for Apple Silicon and Intel; release artifacts still need validation. Consumers of a prebuilt release will not need Rust. Install the signed app separately in `~/Applications` or `/Applications` and create or import a wallet first. Replace `trading` below with its saved name; the SDK does not create wallets.
+The build produces `dist/index.js`, `dist/index.d.ts`, and `dist/keylet.node` inside `node/`, targeting the current Mac architecture. To use it in another Node project, run `npm install /absolute/path/keylet/node` there. The `keylet` package does not include `Keylet.app`; install the complete signed app in `~/Applications` or `/Applications`. In the source checkout, the SDK can use `build/Keylet.app` directly.
+
+## Usage
+
+Create or import a wallet in Keylet first. Replace `trading` below with its saved name; the SDK does not create wallets.
 
 ```ts
-import { getKeyPair } from 'keychain-wallet';
+import { getKeyPair } from 'keylet';
 
 const { publicKey, privateKey } = await getKeyPair({
   name: 'trading',
@@ -26,7 +35,7 @@ const { publicKey, privateKey } = await getKeyPair({
 
 Both result fields are `0x` hex strings. secp256k1 returns a 32-byte private scalar and 33-byte compressed public key; Ed25519 returns a 32-byte child seed and 32-byte public key. Never log or persist private keys. Your application manages its own signing library.
 
-The bridge finds `keychain-wallet.app` in `~/Applications` or `/Applications`. In the source checkout, it can also find `build/keychain-wallet.app`. Otherwise pass an absolute executable path as `helperPath`. The app bundle is not included in this npm package; the app and addon must be upgraded together. Use ESM, or `await import('keychain-wallet')` from CommonJS.
+The bridge finds `Keylet.app` in `~/Applications` or `/Applications`. In the source checkout, it can also find `build/Keylet.app`. Otherwise pass the absolute path to `Keylet.app/Contents/MacOS/keylet` as `helperPath`. The app bundle is not included in this npm package; build the app and addon together. Use ESM, or `await import('keylet')` from CommonJS.
 
 Calls reuse a macOS authentication context in a private helper belonging to the current Node process. The fixed window starts after successful authentication and defaults to 300 seconds; repeated calls do not extend it. Keys and failures are not cached. Each call reads Keychain again. Calls must originate from the main thread; different Node processes and App UI operations authenticate separately.
 
@@ -64,8 +73,8 @@ Node.js 22+ is the supported target. Bun's Node-API support may run these exampl
 | Error | What to check |
 | --- | --- |
 | `NOT_FOUND` | The wallet name must match the app; examples never create `trading` or `demo` |
-| `KEYCHAIN_WALLET_APP_NOT_FOUND` | Install the complete app or set `helperPath`; npm does not include the app |
-| `KEYCHAIN_WALLET_BRIDGE_NOT_BUILT` | Check addon build and CPU architecture; `cause` contains the original load error |
+| `KEYLET_APP_NOT_FOUND` | Install the complete app or set `helperPath`; npm does not include the app |
+| `KEYLET_BRIDGE_NOT_BUILT` | Check addon build and CPU architecture; `cause` contains the original load error |
 | `SIGNING_CONFIGURATION` | Check certificate, profile, bundle ID, and private access group using the signing guide |
 | `SETTINGS_ERROR` | Open the app Settings and save an authentication option again |
 | `Invalid wallet selection` | curve is required; path and index are exclusive; Ed25519 requires a hardened-only path |
@@ -96,7 +105,7 @@ npm pack
 
 `prepack` rebuilds both architectures, merges and checks the native addon, then generates JavaScript and type declarations. A failure stops packaging. The package includes only these three artifacts, documentation, and package metadata; no Rust sources, build scripts, or signing material.
 
-Install the generated `keychain-wallet-0.1.0.tgz` in a separate project and verify loading and the public API. After confirming that your publishing account owns the package name, publish that same inspected file with `npm publish ./keychain-wallet-0.1.0.tgz`. Update the version in `package.json` before each release. Build the signed app separately from the repository root.
+Install the generated `keylet-0.1.0.tgz` in a separate project and verify loading and the public API. After confirming that your publishing account owns the package name, publish that same inspected file with `npm publish ./keylet-0.1.0.tgz`. Update the version in `package.json` before each release. Build the signed app separately from the repository root.
 
 ### Manual GitHub Actions release
 
@@ -104,7 +113,7 @@ Use [`.github/workflows/release-node.yml`](../.github/workflows/release-node.yml
 
 1. Commit the release changes and push an existing `vMAJOR.MINOR.PATCH` tag matching `node/package.json`. The workflow must be on the default branch to appear in Actions.
 2. Enter that tag. Leave `draft` enabled to build and download the `.tgz` without publishing. This mode does not need npm or Apple credentials and does not create a GitHub Release.
-3. For npm publication, add the repository Secret `NPM_TOKEN`: a granular access token with publish permission for `keychain-wallet` and bypass 2FA enabled for CI, as described in [npm's CI guidance](https://docs.npmjs.com/using-private-packages-in-a-ci-cd-workflow/). Confirm package-name ownership and that the package's publishing policy permits token-based publication.
+3. For npm publication, add the repository Secret `NPM_TOKEN`: a granular access token with publish permission for `keylet` and bypass 2FA enabled for CI, as described in [npm's CI guidance](https://docs.npmjs.com/using-private-packages-in-a-ci-cd-workflow/). Confirm package-name ownership and that the package's publishing policy permits token-based publication.
 4. Run again with the same tag and `draft` disabled. This rebuilds and verifies the tarball, uploads it to workflow artifacts, then publishes that same verified file to npm with the `latest` dist-tag. Existing npm versions cannot be overwritten; increment the version and create a new Git tag for the next release.
 
 CI reuses `prepack` to build the Universal addon and TypeScript outputs, checks the exact package file list, installs the tarball outside the checkout, and checks addon loading and rejection of invalid input without accessing a wallet. It checks both Mach-O architectures, but executes the smoke check only on the runner's architecture; it does not replace Intel runtime or interactive app validation. No npm token is passed to build or package scripts. The App and npm package use separate workflows (`release-app.yml` and `release-node.yml`); each tag must match the corresponding package version.

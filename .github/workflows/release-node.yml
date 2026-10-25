@@ -54,7 +54,7 @@ jobs:
           import assert from 'node:assert/strict';
           import { readFileSync } from 'node:fs';
           const pkg = JSON.parse(readFileSync('node/package.json', 'utf8'));
-          assert.equal(pkg.name, 'keychain-wallet');
+          assert.equal(pkg.name, 'keylet');
           assert.equal(process.env.RELEASE_TAG, `v${pkg.version}`, 'Tag must match node/package.json version');
           JS
 
@@ -100,7 +100,7 @@ jobs:
           expected = {
               'package/package.json', 'package/README.md', 'package/README_ZH.md',
               'package/LICENSE', 'package/dist/index.js', 'package/dist/index.d.ts',
-              'package/dist/keychain-wallet.node',
+              'package/dist/keylet.node',
           }
           with tarfile.open(archives[0], 'r:gz') as archive:
               members = archive.getmembers()
@@ -115,12 +115,12 @@ jobs:
           cd "$RUNNER_TEMP/npm-smoke"
           npm init --yes >/dev/null
           npm install --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/npm-release/*.tgz
-          lipo -verify_arch arm64 x86_64 node_modules/keychain-wallet/dist/keychain-wallet.node
+          lipo -verify_arch arm64 x86_64 node_modules/keylet/dist/keylet.node
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
-          import { getKeyPair } from 'keychain-wallet';
+          import { getKeyPair } from 'keylet';
           await assert.rejects(
-            getKeyPair({ name: '', curve: 'secp256k1', helperPath: '/definitely-missing-keychain-wallet-helper' }),
+            getKeyPair({ name: '', curve: 'secp256k1', helperPath: '/definitely-missing-keylet-helper' }),
             { message: 'Invalid wallet selection' },
           );
           JS
@@ -128,7 +128,7 @@ jobs:
       - name: Upload npm package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: keychain-wallet-${{ inputs.tag }}-npm
+          name: keylet-${{ inputs.tag }}-npm
           path: ${{ runner.temp }}/npm-release/*.tgz
           if-no-files-found: error
 

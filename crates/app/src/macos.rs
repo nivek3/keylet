@@ -274,7 +274,7 @@ impl Vault {
             q.push((symbol(kSecAttrAccessControl), acl));
             q.push((
                 symbol(kSecAttrLabel),
-                CFString::new(&format!("keychain-wallet: {name}")).as_CFType(),
+                CFString::new(&format!("Keylet: {name}")).as_CFType(),
             ));
             q.push((
                 symbol(kSecValueData),

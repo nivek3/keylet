@@ -1,5 +1,5 @@
 {
-  "name": "keychain-wallet",
+  "name": "keylet",
   "version": "0.1.0",
   "type": "module",
   "engines": {
@@ -14,7 +14,7 @@
   "files": [
     "dist/index.js",
     "dist/index.d.ts",
-    "dist/keychain-wallet.node",
+    "dist/keylet.node",
     "README.md",
     "README_ZH.md",
     "LICENSE"

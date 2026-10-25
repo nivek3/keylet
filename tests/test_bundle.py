@@ -15,7 +15,7 @@ class BundleTests(unittest.TestCase):
         folder = tempfile.TemporaryDirectory(prefix="wallet-public-profile-test-")
         self.addCleanup(folder.cleanup)
         root = pathlib.Path(folder.name)
-        app = root / "keychain-wallet.app"
+        app = root / "Keylet.app"
         (app / "Contents").mkdir(parents=True)
         profile = {
             "ApplicationIdentifierPrefix": ["PREFIX"], "TeamIdentifier": ["DIFFERENT_TEAM"],
@@ -43,9 +43,9 @@ class BundleTests(unittest.TestCase):
         with (app / "Contents/Info.plist").open("rb") as source:
             info = plistlib.load(source)
         self.assertEqual(info["WalletAccessGroup"], "PREFIX.com.example.Wallet")
-        self.assertEqual(info["CFBundleName"], "keychain-wallet")
-        self.assertEqual(info["CFBundleDisplayName"], "keychain-wallet")
-        self.assertEqual(info["CFBundleExecutable"], "keychain-wallet")
+        self.assertEqual(info["CFBundleName"], "Keylet")
+        self.assertEqual(info["CFBundleDisplayName"], "Keylet")
+        self.assertEqual(info["CFBundleExecutable"], "keylet")
         self.assertEqual(info["CFBundleIconFile"], "AppIcon.icns")
         icon = (app / "Contents/Resources/AppIcon.icns").read_bytes()
         self.assertEqual(icon[:4], b"icns")

@@ -36,9 +36,9 @@ export async function getKeyPair(selection: WalletSelection): Promise<KeyPair> {
   if (process.platform !== 'darwin') throw new Error('macOS is required');
   if (!bridge) {
     try {
-      bridge = require('../dist/keychain-wallet.node') as NativeBridge;
+      bridge = require('../dist/keylet.node') as NativeBridge;
     } catch (cause) {
-      throw new Error('KEYCHAIN_WALLET_BRIDGE_NOT_BUILT', { cause });
+      throw new Error('KEYLET_BRIDGE_NOT_BUILT', { cause });
     }
   }
   try {

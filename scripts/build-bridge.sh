@@ -20,10 +20,10 @@ if [[ ${1:-} == --universal && $# == 1 ]]; then
   lipo -verify_arch arm64 x86_64 "$output"
   codesign --force --sign - "$output"
   chmod 644 "$output"
-  mv "$output" "$root/node/dist/keychain-wallet.node"
+  mv "$output" "$root/node/dist/keylet.node"
 elif [[ $# == 0 ]]; then
   cargo build --release --locked --manifest-path "$root/Cargo.toml" -p wallet-bridge
-  cp "$root/target/release/libwallet_bridge.dylib" "$root/node/dist/keychain-wallet.node"
+  cp "$root/target/release/libwallet_bridge.dylib" "$root/node/dist/keylet.node"
 else
   echo 'Usage: build-bridge.sh [--universal]' >&2
   exit 1

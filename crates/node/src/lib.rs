@@ -19,7 +19,7 @@ mod node;
 type BridgeResult<T> = Result<T, &'static str>;
 const INVALID: &str = "Invalid wallet selection";
 const BAD_RESPONSE: &str = "INVALID_HELPER_RESPONSE";
-const EXECUTABLE: &str = "keychain-wallet.app/Contents/MacOS/keychain-wallet";
+const EXECUTABLE: &str = "Keylet.app/Contents/MacOS/keylet";
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum Curve {
@@ -159,7 +159,7 @@ fn find_helper(
                 development_root(root).map(|repository| repository.join("build").join(EXECUTABLE)),
             )
             .find(|path| path.exists())
-            .ok_or("KEYCHAIN_WALLET_APP_NOT_FOUND")?,
+            .ok_or("KEYLET_APP_NOT_FOUND")?,
     };
     // An explicit or selected broken helper never falls back to another executable.
     selected.canonicalize().map_err(|_| "HELPER_START_FAILED")
@@ -360,7 +360,7 @@ mod tests {
     static COUNT: AtomicUsize = AtomicUsize::new(0);
     fn folder() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
-            "keychain-wallet-bridge-{}-{}",
+            "keylet-bridge-{}-{}",
             std::process::id(),
             COUNT.fetch_add(1, Ordering::Relaxed)
         ));
@@ -446,14 +446,14 @@ mod tests {
         fs::create_dir_all(root.join("scripts")).unwrap();
         fs::write(root.join("scripts/build-native.sh"), "public fixture").unwrap();
         assert_eq!(development_root(&package), Some(root.as_path()));
-        assert_eq!(development_root(&root.join("keychain-wallet")), None);
+        assert_eq!(development_root(&root.join("keylet")), None);
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn user_helper_and_explicit_paths_do_not_silently_fall_back() {
         let root = folder();
-        let helper = root.join("Applications").join(EXECUTABLE);
+        let helper = root.join("Applications/Keylet.app/Contents/MacOS/keylet");
         fs::create_dir_all(helper.parent().unwrap()).unwrap();
         fs::write(&helper, "public fixture").unwrap();
         assert_eq!(

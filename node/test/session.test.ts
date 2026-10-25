@@ -18,7 +18,7 @@ const secondAddress = '0x70997970c51812dc3a010c7d01b50e0d17dc79c8';
 const thirdKey = HDNodeWallet.fromPhrase('test test test test test test test test test test test junk', '', "m/44'/60'/0'/0/2").privateKey;
 const thirdAddress = '0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc';
 const secondKey = HDNodeWallet.fromPhrase('test test test test test test test test test test test junk', '', "m/44'/60'/0'/0/1").privateKey;
-const folder = mkdtempSync(join(tmpdir(), 'keychain-wallet-public-test-'));
+const folder = mkdtempSync(join(tmpdir(), 'keylet-public-test-'));
 const helper = join(folder, 'mock.mjs');
 writeFileSync(
   helper,

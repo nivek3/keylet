@@ -36,9 +36,9 @@ if not any(allows(group, app_id) for group in entitlements.get("keychain-access-
 app = pathlib.Path(app_path)
 info = {
     "CFBundleIdentifier": bundle_id,
-    "CFBundleName": "keychain-wallet",
-    "CFBundleDisplayName": "keychain-wallet",
-    "CFBundleExecutable": "keychain-wallet",
+    "CFBundleName": "Keylet",
+    "CFBundleDisplayName": "Keylet",
+    "CFBundleExecutable": "keylet",
     "CFBundleIconFile": "AppIcon.icns",
     "CFBundlePackageType": "APPL",
     "CFBundleVersion": version,

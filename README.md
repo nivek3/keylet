@@ -48,7 +48,7 @@ The npm package does not include the macOS app. Build both before using the SDK.
 1. Clone the repository:
 
    ```sh
-   git clone https://github.com/nivek3/keychain-wallet.git keylet
+   git clone https://github.com/nivek3/keylet.git keylet
    cd keylet
    ```
 
@@ -134,7 +134,7 @@ The app builds with Cargo and scripts; Xcode is needed for Personal Team provisi
 
 ## Security and feedback
 
-Bug reports should include macOS version, CPU architecture, Node/Bun version, app/SDK version, and the error code. Use public test fixtures for reproductions. Please report security issues through [GitHub private vulnerability reporting](https://github.com/nivek3/keychain-wallet/security/advisories/new).
+Bug reports should include macOS version, CPU architecture, Node/Bun version, app/SDK version, and the error code. Use public test fixtures for reproductions. Please report security issues through [GitHub private vulnerability reporting](https://github.com/nivek3/keylet/security/advisories/new).
 
 ## License
 

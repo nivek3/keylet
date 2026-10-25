@@ -48,7 +48,7 @@ npm 包不包含 macOS App。使用 SDK 前，需要分别构建 App 和 SDK。
 1. 克隆仓库：
 
    ```sh
-   git clone https://github.com/nivek3/keychain-wallet.git keylet
+   git clone https://github.com/nivek3/keylet.git keylet
    cd keylet
    ```
 
@@ -134,7 +134,7 @@ App 使用 Cargo 和脚本构建，Xcode 用于 Personal Team provisioning。
 
 ## 安全与反馈
 
-报告问题时请提供 macOS 版本、CPU 架构、Node/Bun 版本、App/SDK 版本及错误码。复现只使用公开测试数据；安全问题请使用 [GitHub 私密漏洞报告](https://github.com/nivek3/keychain-wallet/security/advisories/new)。
+报告问题时请提供 macOS 版本、CPU 架构、Node/Bun 版本、App/SDK 版本及错误码。复现只使用公开测试数据；安全问题请使用 [GitHub 私密漏洞报告](https://github.com/nivek3/keylet/security/advisories/new)。
 
 ## 许可证
 

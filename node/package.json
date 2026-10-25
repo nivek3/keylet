@@ -47,12 +47,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/nivek3/keychain-wallet.git",
+    "url": "git+https://github.com/nivek3/keylet.git",
     "directory": "node"
   },
-  "homepage": "https://github.com/nivek3/keychain-wallet#readme",
+  "homepage": "https://github.com/nivek3/keylet#readme",
   "bugs": {
-    "url": "https://github.com/nivek3/keychain-wallet/issues"
+    "url": "https://github.com/nivek3/keylet/issues"
   },
   "keywords": [
     "macos",

@@ -20,7 +20,7 @@ core-foundation = "=0.10.1"
 security-framework-sys = { version = "=2.17.0", features = ["OSX_10_15"] }
 objc2 = "0.6"
 objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSBundle", "NSString"] }
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSPasteboard", "NSEvent", "NSResponder", "NSRunningApplication", "NSAlert", "NSWindow", "block2"] }
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSPasteboard", "NSEvent", "NSResponder", "NSRunningApplication", "NSAlert", "NSWindow", "NSView", "NSVisualEffectView", "NSGraphics", "NSColor", "NSWorkspace", "NSAccessibility", "block2"] }
 objc2-local-authentication = { version = "=0.3.2", default-features = false, features = ["std", "LAContext"] }
 block2 = "0.6"
 bs58 = "=0.5.1"

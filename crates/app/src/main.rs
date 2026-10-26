@@ -68,7 +68,7 @@ fn bridge(vault: &macos::Vault, requested_ttl: u64) -> Result<()> {
         objc2::rc::autoreleasepool(|_| -> Result<()> {
             // Read the cap on every request, so saving zero takes effect immediately.
             let ttl = requested_ttl.min(catalog.authentication_ttl()?);
-            let reason = format!("Wallet: {}\nCurve: {}\nPath: {}", request.name, request.curve.name(), request.path);
+            let reason = format!("provide a private key from wallet \"{}\" to your script\nCurve: {}\nPath: {}", request.name, request.curve.name(), request.path);
             let context = session.context(&reason, std::time::Duration::from_secs(ttl), std::time::Instant::now());
             let wallet = vault.read(&request.name, context);
             session.complete(wallet.is_ok(), std::time::Instant::now());
@@ -130,7 +130,7 @@ fn main_impl() -> Result<()> {
     macos::initialize_accessory()?;
     let context = macos::AuthContext::new(
         &format!(
-            "Wallet: {}\nPath: {}\nExpected address: {}",
+            "verify the Ethereum address for wallet \"{}\"\nPath: {}\nExpected address: {}",
             request.name, request.path, args[3]
         ),
         false,

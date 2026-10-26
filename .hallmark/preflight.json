@@ -1,0 +1,14 @@
+{
+  "scanned": "2026-10-26",
+  "scope": "app",
+  "findings": {
+    "framework": "Rust / eframe 0.33.3, crates/app/Cargo.toml:14",
+    "fonts": "macOS system font with egui fallback, crates/app/src/theme.rs:32",
+    "palette": "Central Color32 constants, crates/app/src/theme.rs:7",
+    "shell": "Existing collapsible wallet sidebar, content pane and native title bar, crates/app/src/ui/wallets.rs:279",
+    "working_tree": "Five existing modified files preserved; theme changes layered onto current source."
+  },
+  "preserve": ["system fonts", "two-pane shell", "content", "handlers", "authentication and secret handling"],
+  "introduce": ["Dusk slate surfaces", "periwinkle actions and focus", "apricot cautions", "pill buttons", "dark native title bar"],
+  "adaptation": "Native egui tokens remain in theme.rs; CSS scaffolding and website imagery do not apply."
+}

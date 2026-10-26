@@ -8,10 +8,11 @@ use core_foundation::{
     number::CFNumber,
     string::{CFString, CFStringRef},
 };
-use objc2::{rc::Retained, runtime::AnyObject, MainThreadMarker};
+use objc2::{rc::Retained, runtime::AnyObject, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask, NSEventModifierFlags,
-    NSPasteboard,
+    NSPasteboard, NSAutoresizingMaskOptions, NSColor, NSVisualEffectBlendingMode,
+    NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindowOrderingMode, NSWorkspace,
 };
 use objc2_foundation::{NSBundle, NSString};
 use objc2_local_authentication::LAContext;
@@ -19,7 +20,9 @@ use security_framework_sys::{
     access_control::*, code_signing::*, item::*, keychain_item::*, random::*,
 };
 use std::{
+    cell::Cell,
     ptr::{self, NonNull},
+    rc::Rc,
     time::{Duration, Instant},
 };
 use zeroize::Zeroizing;
@@ -363,7 +366,7 @@ impl Vault {
     }
     pub fn summaries(&self) -> Result<Vec<WalletSummary>> {
         let context = AuthContext::new(
-            "Sync wallet names and default ETH / Solana addresses",
+            "refresh your wallet list and default account addresses",
             false,
         );
         self.names_with_context(&context)?
@@ -385,10 +388,37 @@ impl Vault {
         }
     }
     pub fn delete_authenticated(&self, name: &str) -> Result<()> {
-        let context = AuthContext::new(&format!("Delete wallet {name}"), false);
+        let context = AuthContext::new(&format!("permanently delete wallet \"{name}\""), false);
         self.read(name, &context)?;
         self.delete(name, &context)
     }
+}
+
+pub fn configure_window_material() -> Result<()> {
+    let mtm = MainThreadMarker::new().ok_or(Failure::Configuration)?;
+    // eframe has created the sole app window before invoking its app-creation callback.
+    let window = NSApplication::sharedApplication(mtm).windows().firstObject()
+        .ok_or(Failure::Configuration)?;
+    let view = window.contentView().ok_or(Failure::Configuration)?;
+    // A child view would cover egui's OpenGL drawing; keep the material behind its view instead.
+    let container = unsafe { view.superview() }.ok_or(Failure::Configuration)?;
+    let material = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), container.bounds());
+    material.setMaterial(NSVisualEffectMaterial::Sidebar);
+    material.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+    material.setState(NSVisualEffectState::Active);
+    material.setAlphaValue(if NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceTransparency() {
+        1.0
+    } else { 0.86 });
+    material.setAutoresizingMask(
+        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+    );
+    container.addSubview_positioned_relativeTo(&material, NSWindowOrderingMode::Below, Some(&view));
+    // Both retained views remain alive while checking the newly attached parent.
+    debug_assert!(unsafe { material.superview() }.is_some());
+    window.setOpaque(false);
+    window.setBackgroundColor(Some(&NSColor::clearColor()));
+    window.setTitlebarAppearsTransparent(true);
+    Ok(())
 }
 
 pub fn initialize_accessory() -> Result<()> {
@@ -497,12 +527,15 @@ impl Clipboard {
 // Intercept before winit can read the system clipboard; egui's input hook is too late.
 pub struct ClipboardGate {
     monitor: Retained<AnyObject>,
+    blocked: Rc<Cell<bool>>,
 }
 impl ClipboardGate {
     pub fn new() -> Result<Self> {
+        let blocked = Rc::new(Cell::new(true));
+        let gate = blocked.clone();
         let block = block2::RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
             let e = unsafe { event.as_ref() };
-            if e.modifierFlags().contains(NSEventModifierFlags::Command) {
+            if gate.get() && e.modifierFlags().contains(NSEventModifierFlags::Command) {
                 let key = e
                     .charactersIgnoringModifiers()
                     .map(|s| s.to_string().to_ascii_lowercase())
@@ -517,7 +550,10 @@ impl ClipboardGate {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
         }
         .ok_or(Failure::Configuration)?;
-        Ok(Self { monitor })
+        Ok(Self { monitor, blocked })
+    }
+    pub fn set_blocked(&self, blocked: bool) {
+        self.blocked.set(blocked);
     }
 }
 impl Drop for ClipboardGate {

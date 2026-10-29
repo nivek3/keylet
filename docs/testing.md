@@ -18,6 +18,8 @@ Ed25519 tests check the Solana backend against official SLIP-0010 vectors and pu
 
 Use an unfunded test wallet and complete authentication locally. Check creation, backup confirmation, import, key reads, cancellation, Touch ID or password fallback, and profile renewal. Do not send recovery phrases or private keys to chat. Automated tests do not delete real wallets or execute blockchain transactions.
 
+Derived accounts: expand **Derived account** in wallet details. Check Ethereum indices 0 and 2 against the SDK results, and Solana indices against the full paths `m/44'/501'/0'/0'` and `m/44'/501'/2'/0'`. Verify a custom full path, reject negative/overflowing indices and non-hardened Solana paths, and confirm the displayed path matches the query. Each query must require fresh authentication; cancellation must leave no address result. Copy must contain only the displayed address. Changing the curve, index, input mode, or path, and switching wallets (including through search), must clear the previous result. Check the form and wrapped address in the minimum window size.
+
 ## npm release artifact
 
 Follow [the Node release steps](../node/README.md#development-and-publishing) to build a universal tarball. Install the tarball in a clean Node project; do not use a source-directory symlink for this check. Confirm that importing the package works and an invalid wallet selection is rejected before helper discovery. Check the tarball file list for only package metadata, READMEs, `dist/index.js`, `dist/index.d.ts`, and `dist/keylet.node`. Run the public-fixture integration tests on both Apple Silicon and Intel before claiming support is verified on both.

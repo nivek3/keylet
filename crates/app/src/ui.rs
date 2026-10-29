@@ -1,3 +1,4 @@
+mod accounts;
 mod wallets;
 
 use crate::catalog::Catalog;
@@ -76,6 +77,7 @@ struct WalletApp {
     wallets: Vec<WalletSummary>,
     search: String,
     selected_wallet: Option<String>,
+    account_view: accounts::AccountView,
     sidebar_visible: bool,
     vibrant_shell: bool,
     pending_wallet_selection: Option<String>,
@@ -320,6 +322,7 @@ impl WalletApp {
         }
     }
     fn wipe_draft(&mut self) {
+        self.account_view = accounts::AccountView::default();
         self.revealed.clear();
         self.clipboard.clear();
         self.mnemonic.zeroize();
@@ -1087,6 +1090,7 @@ pub fn run(
         wallets: Vec::new(),
         search: String::new(),
         selected_wallet: None,
+        account_view: accounts::AccountView::default(),
         sidebar_visible: true,
         vibrant_shell: false,
         pending_wallet_selection: None,

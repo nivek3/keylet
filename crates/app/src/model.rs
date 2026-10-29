@@ -260,6 +260,7 @@ pub struct Derived {
     pub key: Zeroizing<[u8; 32]>,
     pub public_key: String,
     pub identifier: String,
+    pub address: String,
 }
 pub fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
@@ -307,8 +308,12 @@ pub fn derive(
     } else {
         hex(&public)
     };
+    let address = match request.curve {
+        Curve::Secp256k1 => hex(&wallet_crypto::ethereum_address(&public)),
+        Curve::Ed25519 => bs58::encode(&public).into_string(),
+    };
     let identifier = if request.curve == Curve::Secp256k1 {
-        hex(&wallet_crypto::ethereum_address(&public))
+        address.clone()
     } else {
         public_key.clone()
     };
@@ -323,6 +328,7 @@ pub fn derive(
         key,
         public_key,
         identifier,
+        address,
     })
 }
 pub fn check_passphrase(passphrase: &str, confirmation: &str, empty: bool) -> Result<()> {

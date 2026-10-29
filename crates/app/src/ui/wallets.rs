@@ -111,6 +111,7 @@ impl WalletApp {
 
     pub(super) fn wallet_detail(&mut self, ui: &mut egui::Ui) {
         let Some(entry) = self.selected_entry().cloned() else {
+            self.account_view = super::accounts::AccountView::default();
             ui.add_space(100.0);
             ui.vertical_centered(|ui| {
                 theme::app_icon(ui);
@@ -132,6 +133,7 @@ impl WalletApp {
         if self.name != entry.name {
             self.revealed.clear();
         }
+        self.account_view.select_wallet(&entry.name);
         let width = ui.available_width().min(380.0);
         ui.vertical_centered(|ui| {
             ui.set_width(width);
@@ -163,6 +165,8 @@ impl WalletApp {
                         });
                     });
                 });
+            ui.add_space(12.0);
+            ui.collapsing("Derived account", |ui| self.derived_account(ui));
             ui.add_space(20.0);
             ui.horizontal(|ui| {
                 if theme::secondary(ui, "Seed phrase").clicked() {

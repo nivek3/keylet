@@ -1,0 +1,48 @@
+name: Bug report
+description: Report unexpected behavior in the Keylet app or SDK.
+title: '[Bug]: '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues first. Use public test data and redact sensitive information from logs and screenshots.
+        Never include recovery phrases, passphrases, private keys, or credentials. Report security vulnerabilities through the private security reporting link on the issue selection page.
+  - type: textarea
+    id: actual_behavior
+    attributes:
+      label: What happened?
+      description: Explain the unexpected behavior. Add a redacted screenshot if it helps.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide a minimal example or numbered steps using public test data.
+    validations:
+      required: true
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include versions or the commit used for source builds. Mark unrelated fields as N/A.
+      placeholder: |
+        macOS version:
+        CPU architecture (Apple Silicon / Intel):
+        Keylet app version or commit:
+        SDK version (if used):
+        Node.js / Bun version (if used):
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Error code and relevant logs (optional)
+      description: Include only the output needed to explain the failure. Remove sensitive values and do not paste wallet objects.
+      render: text

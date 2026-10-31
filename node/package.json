@@ -22,7 +22,7 @@
   "scripts": {
     "build": "pnpm run build:bridge && tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.check.json",
-    "test": "node --import tsx --test test/*.test.ts",
+    "test": "bash ../scripts/build-bridge.sh --test && node --import tsx --test test/*.test.ts",
     "build:bridge": "bash ../scripts/build-bridge.sh",
     "build:release": "bash ../scripts/build-bridge.sh --universal && tsc -p tsconfig.json",
     "prepack": "pnpm run build:release"

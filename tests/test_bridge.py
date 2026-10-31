@@ -39,8 +39,8 @@ elif tool == "lipo":
     if args[0] == "-create":
         pathlib.Path(args[-1]).write_text("".join(pathlib.Path(p).read_text() for p in args[1:args.index("-output")]))
     else:
-        assert args[:3] == ["-verify_arch", "arm64", "x86_64"]
-        data = pathlib.Path(args[-1]).read_text()
+        assert len(args) == 3 and args[1] == "-verify_arch" and args[2] in ("arm64", "x86_64")
+        data = pathlib.Path(args[0]).read_text()
         assert "aarch64-apple-darwin" in data and "x86_64-apple-darwin" in data
 elif tool == "codesign":
     assert args[:3] == ["--force", "--sign", "-"]

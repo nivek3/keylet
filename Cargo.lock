@@ -3517,6 +3517,7 @@ dependencies = [
 name = "wallet-bridge"
 version = "0.1.0"
 dependencies = [
+ "core-foundation 0.10.1",
  "k256 0.13.4",
  "libc",
  "napi",

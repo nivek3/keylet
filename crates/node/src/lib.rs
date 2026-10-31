@@ -5,21 +5,21 @@ use std::{
         fd::{AsRawFd, RawFd},
         unix::{net::UnixStream, process::CommandExt},
     },
-    path::{Path, PathBuf},
-    process::{Child, ChildStdin, ChildStdout, ChildStderr, Command, Stdio},
+    path::PathBuf,
+    process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio},
     sync::{Mutex, OnceLock},
     thread,
     time::{Duration, Instant},
 };
 use zeroize::Zeroizing;
 
+mod discovery;
 #[cfg(not(test))]
 mod node;
 
 type BridgeResult<T> = Result<T, &'static str>;
 const INVALID: &str = "Invalid wallet selection";
 const BAD_RESPONSE: &str = "INVALID_HELPER_RESPONSE";
-const EXECUTABLE: &str = "Keylet.app/Contents/MacOS/keylet";
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum Curve {
@@ -45,16 +45,23 @@ struct Selection {
     authentication_ttl: u64,
 }
 
-
 struct KeyPair {
     private: Zeroizing<[u8; 32]>,
     public: String,
 }
 
 // One private pipe session per Node process; no key or failure cache.
-static SESSION: OnceLock<Mutex<Option<HelperSession>>> = OnceLock::new();
+static SESSION: OnceLock<Mutex<Option<AppSession>>> = OnceLock::new();
 
-fn validate(input: &Value) -> BridgeResult<(String, Curve, String, Option<PathBuf>, u64)> {
+fn validate(input: &Value) -> BridgeResult<(String, Curve, String, u64)> {
+    if input.as_object().ok_or(INVALID)?.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "name" | "curve" | "index" | "path" | "authTTL"
+        )
+    }) {
+        return Err(INVALID);
+    }
     let name = input.get("name").and_then(Value::as_str).ok_or(INVALID)?;
     let curve = match input.get("curve").and_then(Value::as_str) {
         Some("secp256k1") => Curve::Secp256k1,
@@ -116,68 +123,44 @@ fn validate(input: &Value) -> BridgeResult<(String, Curve, String, Option<PathBu
     if !valid {
         return Err(INVALID);
     }
-    let helper = input
-        .get("helperPath")
-        .map(|value| {
-            let path = PathBuf::from(value.as_str().ok_or(INVALID)?);
-            if path.is_absolute() {
-                Ok(path)
-            } else {
-                Err(INVALID)
-            }
-        })
-        .transpose()?;
-    let authentication_ttl = match input.get("authenticationTtl") {
+    let authentication_ttl = match input.get("authTTL") {
         None => u64::MAX, // No caller cap: follow the app setting.
-        Some(value) => value.as_f64()
+        Some(value) => value
+            .as_f64()
             .filter(|value| (0.0..=9_007_199_254_740_991.0).contains(value) && value.fract() == 0.0)
             .ok_or(INVALID)? as u64,
     };
-    Ok((name.to_owned(), curve, path, helper, authentication_ttl))
-}
-
-fn development_root(package: &Path) -> Option<&Path> {
-    let root = package.parent()?;
-    (package.file_name()? == "node"
-        && root.join("Cargo.toml").is_file()
-        && root.join("scripts/build-native.sh").is_file())
-    .then_some(root)
-}
-
-fn find_helper(
-    explicit: Option<PathBuf>,
-    home: Option<PathBuf>,
-    root: &Path,
-) -> BridgeResult<PathBuf> {
-    let selected = match explicit {
-        Some(path) => path,
-        None => home
-            .map(|home| home.join("Applications").join(EXECUTABLE))
-            .into_iter()
-            .chain([Path::new("/Applications").join(EXECUTABLE)])
-            .chain(
-                development_root(root).map(|repository| repository.join("build").join(EXECUTABLE)),
-            )
-            .find(|path| path.exists())
-            .ok_or("KEYLET_APP_NOT_FOUND")?,
-    };
-    // An explicit or selected broken helper never falls back to another executable.
-    selected.canonicalize().map_err(|_| "HELPER_START_FAILED")
+    Ok((name.to_owned(), curve, path, authentication_ttl))
 }
 
 fn unlock(selection: Selection) -> BridgeResult<KeyPair> {
-    let mut session = SESSION.get_or_init(|| Mutex::new(None)).lock().map_err(|_| "KEYCHAIN_ERROR")?;
+    let mut session = SESSION
+        .get_or_init(|| Mutex::new(None))
+        .lock()
+        .map_err(|_| "KEYCHAIN_ERROR")?;
     let reusable = match session.as_mut() {
-        Some(helper) if helper.path == selection.helper && helper.ttl == selection.authentication_ttl =>
-            helper.child.try_wait().map_err(|_| "TRANSPORT_ERROR")?.is_none(),
+        Some(helper)
+            if helper.path == selection.helper && helper.ttl == selection.authentication_ttl =>
+        {
+            helper
+                .child
+                .try_wait()
+                .map_err(|_| "TRANSPORT_ERROR")?
+                .is_none()
+        }
         _ => false,
     };
     if !reusable {
         *session = None;
-        *session = Some(HelperSession::start(&selection)?);
+        *session = Some(AppSession::start(&selection)?);
     }
-    let result = session.as_mut().ok_or("TRANSPORT_ERROR")?.read_key(&selection, Duration::from_secs(120));
-    if result.is_err() { *session = None; }
+    let result = session
+        .as_mut()
+        .ok_or("TRANSPORT_ERROR")?
+        .read_key(&selection, Duration::from_secs(120));
+    if result.is_err() {
+        *session = None;
+    }
     result
 }
 
@@ -203,7 +186,7 @@ fn drain(reader: &mut impl Read, output: &mut Vec<u8>, limit: usize) -> BridgeRe
     }
 }
 
-struct HelperSession {
+struct AppSession {
     path: PathBuf,
     ttl: u64,
     child: Child,
@@ -212,22 +195,29 @@ struct HelperSession {
     stderr: ChildStderr,
     secret: UnixStream,
 }
-impl Drop for HelperSession {
+impl Drop for AppSession {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
-impl HelperSession {
+impl AppSession {
     fn start(selection: &Selection) -> BridgeResult<Self> {
         let (secret, child_secret) = UnixStream::pair().map_err(|_| "TRANSPORT_ERROR")?;
         let fd = child_secret.as_raw_fd();
         let mut command = Command::new(&selection.helper);
-        command.arg("--bridge").arg(selection.authentication_ttl.to_string())
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
-            .env_clear().env("PATH", "/usr/bin:/bin");
+        command
+            .arg("--bridge")
+            .arg(selection.authentication_ttl.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin");
         for name in ["HOME", "USER", "LOGNAME", "TMPDIR"] {
-            if let Some(value) = std::env::var_os(name) { command.env(name, value); }
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
         }
         // After fork, only async-signal-safe descriptor operations before exec.
         unsafe {
@@ -244,15 +234,28 @@ impl HelperSession {
             let stdin = child.stdin.take().ok_or("TRANSPORT_ERROR")?;
             let stdout = child.stdout.take().ok_or("TRANSPORT_ERROR")?;
             let stderr = child.stderr.take().ok_or("TRANSPORT_ERROR")?;
-            for fd in [secret.as_raw_fd(), stdout.as_raw_fd(), stderr.as_raw_fd()] { nonblocking(fd)?; }
+            for fd in [secret.as_raw_fd(), stdout.as_raw_fd(), stderr.as_raw_fd()] {
+                nonblocking(fd)?;
+            }
             Ok((stdin, stdout, stderr))
         })();
         let (stdin, stdout, stderr) = match streams {
             Ok(streams) => streams,
-            Err(error) => { let _ = child.kill(); let _ = child.wait(); return Err(error); }
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error);
+            }
         };
-        Ok(Self { path: selection.helper.clone(), ttl: selection.authentication_ttl,
-            child, stdin, stdout, stderr, secret })
+        Ok(Self {
+            path: selection.helper.clone(),
+            ttl: selection.authentication_ttl,
+            child,
+            stdin,
+            stdout,
+            stderr,
+            secret,
+        })
     }
     fn read_key(&mut self, selection: &Selection, timeout: Duration) -> BridgeResult<KeyPair> {
         let request = json!({"name": selection.name, "curve": selection.curve.as_str(), "path": selection.path});
@@ -269,10 +272,16 @@ impl HelperSession {
             }
             if let Some(status) = self.child.try_wait().map_err(|_| "TRANSPORT_ERROR")? {
                 if key_done && out_done && err_done {
-                    return Err(if status.success() { BAD_RESPONSE } else { reported_error(&err) });
+                    return Err(if status.success() {
+                        BAD_RESPONSE
+                    } else {
+                        reported_error(&err)
+                    });
                 }
             }
-            if Instant::now() >= deadline { return Err("AUTHENTICATION_TIMEOUT"); }
+            if Instant::now() >= deadline {
+                return Err("AUTHENTICATION_TIMEOUT");
+            }
             thread::sleep(Duration::from_millis(10));
         }
     }
@@ -358,7 +367,7 @@ mod tests {
     };
 
     static COUNT: AtomicUsize = AtomicUsize::new(0);
-    fn folder() -> PathBuf {
+    pub(super) fn folder() -> PathBuf {
         let path = std::env::temp_dir().join(format!(
             "keylet-bridge-{}-{}",
             std::process::id(),
@@ -371,7 +380,7 @@ mod tests {
     #[test]
     fn curves_defaults_and_index_boundaries() {
         for index in [0, 1, 2, 2147483647] {
-            let (_, curve, path, _, _) =
+            let (_, curve, path, _) =
                 validate(&json!({"name":"test", "curve":"secp256k1", "index": index})).unwrap();
             assert_eq!(curve, Curve::Secp256k1);
             assert_eq!(path, format!("m/44'/60'/0'/0/{index}"));
@@ -403,6 +412,8 @@ mod tests {
             json!({"name":"test", "curve":"ed25519", "path":"m/0'\n"}),
             json!({"name":"bad\n", "curve":"secp256k1"}),
             json!({"name":"test", "curve":"secp256k1", "helperPath":"relative"}),
+            json!({"name":"test", "curve":"secp256k1", "helperPath":"/tmp/helper"}),
+            json!({"name":"test", "curve":"secp256k1", "unknown":true}),
             json!({"name":"test", "curve":"secp256k1", "path":null}),
         ] {
             assert!(matches!(validate(&input), Err(INVALID)));
@@ -424,53 +435,15 @@ mod tests {
     #[test]
     fn authentication_duration_follows_app_unless_caller_supplies_a_safe_integer() {
         let mut input = json!({"name":"test", "curve":"secp256k1"});
-        assert_eq!(validate(&input).unwrap().4, u64::MAX);
+        assert_eq!(validate(&input).unwrap().3, u64::MAX);
         for seconds in [0, 300, 5400, 86400, 9_007_199_254_740_991u64] {
-            input["authenticationTtl"] = json!(seconds);
-            assert_eq!(validate(&input).unwrap().4, seconds);
+            input["authTTL"] = json!(seconds);
+            assert_eq!(validate(&input).unwrap().3, seconds);
         }
         for invalid in [json!(-1), json!(0.5), json!(9_007_199_254_740_992u64)] {
-            input["authenticationTtl"] = invalid;
+            input["authTTL"] = invalid;
             assert!(validate(&input).is_err());
         }
-    }
-
-    #[test]
-    fn local_build_discovery_requires_the_node_package_inside_the_repository() {
-        let root = folder();
-        let package = root.join("node");
-        fs::create_dir_all(&package).unwrap();
-        assert_eq!(development_root(&package), None);
-        fs::write(root.join("Cargo.toml"), "public fixture").unwrap();
-        assert_eq!(development_root(&package), None);
-        fs::create_dir_all(root.join("scripts")).unwrap();
-        fs::write(root.join("scripts/build-native.sh"), "public fixture").unwrap();
-        assert_eq!(development_root(&package), Some(root.as_path()));
-        assert_eq!(development_root(&root.join("keylet")), None);
-        fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn user_helper_and_explicit_paths_do_not_silently_fall_back() {
-        let root = folder();
-        let helper = root.join("Applications/Keylet.app/Contents/MacOS/keylet");
-        fs::create_dir_all(helper.parent().unwrap()).unwrap();
-        fs::write(&helper, "public fixture").unwrap();
-        assert_eq!(
-            find_helper(None, Some(root.clone()), &root).unwrap(),
-            helper.canonicalize().unwrap()
-        );
-        assert!(matches!(
-            find_helper(Some(root.join("missing")), Some(root.clone()), &root),
-            Err("HELPER_START_FAILED")
-        ));
-        let link = root.join("helper-link");
-        std::os::unix::fs::symlink(&helper, &link).unwrap();
-        assert_eq!(
-            find_helper(Some(link), None, &root).unwrap(),
-            helper.canonicalize().unwrap()
-        );
-        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
@@ -521,7 +494,9 @@ mod tests {
         };
         let start = Instant::now();
         assert!(matches!(
-            HelperSession::start(&selection).unwrap().read_key(&selection, Duration::from_millis(40)),
+            AppSession::start(&selection)
+                .unwrap()
+                .read_key(&selection, Duration::from_millis(40)),
             Err("AUTHENTICATION_TIMEOUT")
         ));
         assert!(start.elapsed() < Duration::from_secs(1));

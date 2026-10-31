@@ -1,5 +1,5 @@
 import { privateKeyToAccount } from 'viem/accounts';
-import { getKeyPair } from '../src/index.js';
+import { getKeyPair } from 'keylet';
 
 const name = process.argv[2];
 if (!name) throw new Error('Pass the name of a wallet already saved in the app');

@@ -59,11 +59,11 @@ The npm package does not include the macOS app. Build both before using the SDK.
    bash scripts/build-native.sh \
      'Apple Development: Your Name (TEAMID)' \
      '/absolute/path/App.provisionprofile' \
-     'com.example.keylet'
+     'com.nivek3.keylet'
    open build/Keylet.app
    ```
 
-   Replace the example bundle ID with the one authorized by your profile. The app executable is `build/Keylet.app/Contents/MacOS/keylet`.
+   The Node SDK discovers Bundle ID `com.nivek3.keylet` through macOS and has no path override. Your profile must authorize this ID to build an app for the SDK. Keep an existing app's Bundle ID and Keychain group unchanged to retain wallet access; an older app with another ID remains separate from the SDK's lookup target.
 
 3. Click **+** and create or import a wallet named `trading`; examples do not create it automatically. Back up new recovery phrases and confirm all words, or explicitly choose **Skip** to save without verifying the backup. For import, verify the account with an independently known Ethereum address or Ed25519 public key. You can view a saved phrase through **Seed phrase**, after macOS authentication.
 
@@ -78,7 +78,7 @@ The npm package does not include the macOS app. Build both before using the SDK.
 
    Complete the macOS authentication prompt. The example prints the Ethereum address for index `2`. Other examples: [ethers v5](node/examples/ethers-v5.ts), [viem](node/examples/viem.ts), [Ed25519](node/examples/ed25519.ts).
 
-For another Node project, install the built SDK with `npm install /absolute/path/keylet/node`. Put the complete `Keylet.app` bundle in `~/Applications` or `/Applications`, or pass its executable's absolute path as `helperPath`. See the [API and troubleshooting guide](node/README.md).
+After publication, install the SDK in your Node project with `npm install keylet`. The published package includes the compiled SDK; users do not need to build it. Install and open the complete app to register Bundle ID `com.nivek3.keylet` with macOS; discovery supports renamed apps. See the [API and troubleshooting guide](node/README.md).
 
 ## How it works
 
@@ -116,7 +116,7 @@ Recovering an existing account requires the original derivation path and BIP-39 
 **Keylet protects keys at rest, not after export.** Once returned, private keys are controlled by the calling process. Deleting a wallet or locking the Mac cannot revoke or erase exported copies. Never log or persist private keys.
 
 - Keychain uses `WhenUnlockedThisDeviceOnly`, user-presence access control, and a private access group. The display cache holds only names and public addresses.
-- Node calls reuse a process-local macOS authentication context without caching keys or failures. The default is 5 minutes from successful authentication; repeated calls do not extend it. In **… → Settings → Node authentication**, save a duration in whole minutes; `0` requires authentication on every call, and there is no policy maximum. See the [API guide](node/README.md) for the per-call `authenticationTtl` limit.
+- Node calls reuse a process-local macOS authentication context without caching keys or failures. The default is 5 minutes from successful authentication; repeated calls do not extend it. In **… → Settings → Node authentication**, save a duration in whole minutes; `0` requires authentication on every call, and there is no policy maximum. See the [API guide](node/README.md) for the per-call `authTTL` limit.
 - App recovery-phrase reveals and deletions always authenticate separately. Recovery phrases are masked by default; reveals expire after 60 seconds and clear on focus loss, navigation, or Hide.
 - Explicit clipboard copies are cleared after 60 seconds while the app runs, before blocking authentication, or on normal exit, provided the clipboard still contains the app's latest copy. Copies retained by other software cannot be revoked.
 - The SDK requires a logged-in macOS session for interactive authentication. It does not target browsers, Linux/Windows servers, or unattended jobs.

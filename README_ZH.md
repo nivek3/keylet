@@ -59,11 +59,11 @@ npm 包不包含 macOS App。使用 SDK 前，需要分别构建 App 和 SDK。
    bash scripts/build-native.sh \
      'Apple Development: Your Name (TEAMID)' \
      '/absolute/path/App.provisionprofile' \
-     'com.example.keylet'
+     'com.nivek3.keylet'
    open build/Keylet.app
    ```
 
-   将示例 bundle ID 替换为 profile 实际授权的值。App 的可执行文件为 `build/Keylet.app/Contents/MacOS/keylet`。
+   Node SDK 通过 macOS 自动查找 Bundle ID 为 `com.nivek3.keylet` 的 App，不提供路径覆盖参数。用于 SDK 的 App 必须使用此 ID，并由 profile 授权。已有钱包的 App 应保持原 Bundle ID 和 Keychain 组，避免失去钱包访问权限；使用其他 ID 的旧 App 与 SDK 查找的目标相互独立。
 
 3. 点击 **+**，创建或导入名为 `trading` 的钱包，示例不会自动创建它。新建时备份助记词并确认全部词，也可明确选择 **Skip**，不验证备份直接保存。导入时提供独立已知的 Ethereum 地址或 Ed25519 公钥核对账户。之后可通过 **Seed phrase**，经 macOS 认证查看已保存的助记词。
 
@@ -78,7 +78,7 @@ npm 包不包含 macOS App。使用 SDK 前，需要分别构建 App 和 SDK。
 
    在本机完成认证，示例会输出 `index: 2` 的 Ethereum 地址。另有 [ethers v5](node/examples/ethers-v5.ts)、[viem](node/examples/viem.ts)、[Ed25519](node/examples/ed25519.ts) 示例。
 
-在其他 Node 项目中使用 `npm install /absolute/path/keylet/node` 安装已构建 SDK。将完整 `Keylet.app` 放进 `~/Applications` 或 `/Applications`，也可通过 `helperPath` 指定包内可执行文件的绝对路径。详见 [API 与故障排查](node/README_ZH.md)。
+正式发布后，在业务项目中运行 `npm install keylet` 即可安装 SDK，使用者无需自行编译。安装并打开完整 App，让 macOS 登记 `com.nivek3.keylet`，自动查找支持 App 改名。详见 [API 与故障排查](node/README_ZH.md)。
 
 ## 工作方式
 
@@ -116,7 +116,7 @@ const keys = await getKeyPair({
 **Keylet 保护密钥的存储，导出后的私钥由调用进程控制。** 删除钱包或锁屏都无法撤回或清除已导出的副本。不要记录或持久化私钥。
 
 - 使用 `WhenUnlockedThisDeviceOnly`、用户在场认证和私有 Keychain 访问组。本机展示清单仅缓存名称与公开地址。
-- Node 调用在当前进程内复用 macOS 认证上下文，不缓存密钥或失败结果。默认从认证成功起计时 5 分钟，连续调用不会续期。在 **… → Settings → Node authentication** 中输入整数分钟并保存；`0` 表示每次认证，不设业务上限。单次调用的 `authenticationTtl` 限制见 [API 文档](node/README_ZH.md)。
+- Node 调用在当前进程内复用 macOS 认证上下文，不缓存密钥或失败结果。默认从认证成功起计时 5 分钟，连续调用不会续期。在 **… → Settings → Node authentication** 中输入整数分钟并保存；`0` 表示每次认证，不设业务上限。单次调用的 `authTTL` 限制见 [API 文档](node/README_ZH.md)。
 - App 内显示助记词和删除钱包始终单独认证。助记词默认遮罩，显示 60 秒、失焦、离开页面或点击 Hide 后清除。
 - 显式复制的内容在应用运行期间 60 秒后、阻塞认证前或正常退出时清理，前提是剪贴板仍为本应用最后一次写入。无法撤回其他软件保留的副本。
 - SDK 需要已登录的 macOS 会话完成交互认证，不面向浏览器、Linux/Windows 服务或无人值守任务。

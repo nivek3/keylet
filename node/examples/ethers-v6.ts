@@ -1,6 +1,6 @@
 // In your project, install ethers and import Wallet from 'ethers'.
 import { Wallet } from 'ethers-v6';
-import { getKeyPair } from '../src/index.js';
+import { getKeyPair } from 'keylet';
 
 const name = process.argv[2];
 if (!name) throw new Error('Pass the name of a wallet already saved in the app');

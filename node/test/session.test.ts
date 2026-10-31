@@ -4,13 +4,21 @@ import { spawn } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import { privateKeyToAccount } from 'viem/accounts';
 import { Wallet as Wallet5, utils } from 'ethers-v5';
 import { Wallet as Wallet6, HDNodeWallet, verifyMessage } from 'ethers-v6';
-import { getKeyPair } from '../src/index.js';
+import type { KeyPair, WalletSelection } from '../src/index.js';
+
+const require = createRequire(import.meta.url);
+type TestBridge = { getKeyPairForTest(selection: WalletSelection, executable: string): Promise<KeyPair> };
+function getKeyPair(selection: WalletSelection): Promise<KeyPair> {
+  const bridge = require('./keylet-test.node') as TestBridge;
+  return bridge.getKeyPairForTest(selection, helper);
+}
 
 // Public Hardhat development wallet ONLY. Never fund these accounts.
 const address = '0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266';
@@ -70,7 +78,7 @@ if (request.name.startsWith('short')) process.exit(0);
 `
 );
 chmodSync(helper, 0o700);
-const options = (name: string) => ({ helperPath: helper, name, curve: 'secp256k1' as const, path: "m/44'/60'/0'/0/0" });
+const options = (name: string) => ({ name, curve: 'secp256k1' as const, path: "m/44'/60'/0'/0/0" });
 const calls = (name: string) =>
   readFileSync(helper + '.calls', 'utf8')
     .split('\n')
@@ -136,19 +144,20 @@ test('failures end the session; only explicit subsequent calls retry', macOnly, 
   }
 });
 
-test('invalid public selection fails before launching a helper', async () => {
-  for (const change of [{ path: 'm/0' }, { name: 'name\n' }, { path: "m/44'/60'/0'/0/0\n" }, { path: "m/44'/60'/2147483648'/0/0" }, { helperPath: 'relative' }, { index: 0 }, { curve: undefined }, { curve: 'p256' }]) {
+test('invalid selection fails before launching a helper', macOnly, async () => {
+  for (const change of [{ path: 'm/0' }, { name: 'name\n' }, { path: "m/44'/60'/0'/0/0\n" }, { path: "m/44'/60'/2147483648'/0/0" }, { index: 0 }, { curve: undefined }, { curve: 'p256' }]) {
     await assert.rejects(getKeyPair({ ...options('invalid'), ...change } as never), { message: 'Invalid wallet selection' });
   }
 });
 
 test('fresh business processes independently unlock', macOnly, async () => {
-  const modulePath = fileURLToPath(new URL('../src/index.ts', import.meta.url));
-  const source = `import { getKeyPair } from ${JSON.stringify(modulePath)};
-    await getKeyPair(${JSON.stringify(options('separate-process'))});`;
+  const modulePath = fileURLToPath(new URL('./keylet-test.node', import.meta.url));
+  const source = `import { createRequire } from 'node:module';
+    const { getKeyPairForTest } = createRequire(import.meta.url)(${JSON.stringify(modulePath)});
+    await getKeyPairForTest(${JSON.stringify(options('separate-process'))}, ${JSON.stringify(helper)});`;
   for (let i = 0; i < 2; i++) {
     await new Promise<void>((resolve, reject) => {
-      const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', source], { stdio: 'ignore' });
+      const child = spawn(process.execPath, ['--input-type=module', '-e', source], { stdio: 'ignore' });
       child.on('error', reject);
       child.on('close', (code) => (code === 0 ? resolve() : reject(new Error('test child failed'))));
     });
@@ -156,7 +165,7 @@ test('fresh business processes independently unlock', macOnly, async () => {
   assert.equal(calls('separate-process'), 2);
 });
 
-const edOptions = (name: string) => ({ helperPath: helper, name, curve: 'ed25519' as const, path: "m/44'/501'/0'/0'" });
+const edOptions = (name: string) => ({ name, curve: 'ed25519' as const, path: "m/44'/501'/0'/0'" });
 
 test('Ed25519 returns a 32-byte seed and public key usable for offline signatures', macOnly, async () => {
   const one = await getKeyPair(edOptions('ed-pair'));
@@ -201,23 +210,25 @@ test('Rust authentication waits leave Node timers and filesystem workers respons
   for (const key of keys) assert.deepEqual(key, keys[0]);
 });
 
-
-test('authenticationTtl reuses only authentication, expires, and supports zero', macOnly, async () => {
-  const auths = (name: string) => readFileSync(helper + '.auth', 'utf8').split('\n').filter(v => v === name).length;
-  const selection = { ...options('ttl-session'), authenticationTtl: 1 };
+test('authTTL reuses only authentication, expires, and supports zero', macOnly, async () => {
+  const auths = (name: string) =>
+    readFileSync(helper + '.auth', 'utf8')
+      .split('\n')
+      .filter((v) => v === name).length;
+  const selection = { ...options('ttl-session'), authTTL: 1 };
   const one = await getKeyPair(selection);
   const two = await getKeyPair(selection);
   assert.deepEqual(one, two);
   assert.equal(calls('ttl-session'), 2);
   assert.equal(auths('ttl-session'), 1);
-  await new Promise(resolve => setTimeout(resolve, 1100));
+  await new Promise((resolve) => setTimeout(resolve, 1100));
   await getKeyPair(selection);
   assert.equal(auths('ttl-session'), 2);
-  await getKeyPair({ ...selection, authenticationTtl: 0 });
-  await getKeyPair({ ...selection, authenticationTtl: 0 });
+  await getKeyPair({ ...selection, authTTL: 0 });
+  await getKeyPair({ ...selection, authTTL: 0 });
   assert.equal(auths('ttl-session'), 4);
-  for (const authenticationTtl of [5400, 86400, Number.MAX_SAFE_INTEGER]) {
-    const result = await getKeyPair({ ...selection, authenticationTtl });
+  for (const authTTL of [5400, 86400, Number.MAX_SAFE_INTEGER]) {
+    const result = await getKeyPair({ ...selection, authTTL });
     assert.deepEqual(result, one);
   }
 });

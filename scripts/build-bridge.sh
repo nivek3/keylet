@@ -17,14 +17,18 @@ if [[ ${1:-} == --universal && $# == 1 ]]; then
   trap 'rm -f "$output"' EXIT
   lipo -create "$root/target/aarch64-apple-darwin/release/libwallet_bridge.dylib" \
     "$root/target/x86_64-apple-darwin/release/libwallet_bridge.dylib" -output "$output"
-  lipo -verify_arch arm64 x86_64 "$output"
+  lipo "$output" -verify_arch arm64
+  lipo "$output" -verify_arch x86_64
   codesign --force --sign - "$output"
   chmod 644 "$output"
   mv "$output" "$root/node/dist/keylet.node"
+elif [[ ${1:-} == --test && $# == 1 ]]; then
+  cargo build --locked --manifest-path "$root/Cargo.toml" -p wallet-bridge
+  cp "$root/target/debug/libwallet_bridge.dylib" "$root/node/test/keylet-test.node"
 elif [[ $# == 0 ]]; then
   cargo build --release --locked --manifest-path "$root/Cargo.toml" -p wallet-bridge
   cp "$root/target/release/libwallet_bridge.dylib" "$root/node/dist/keylet.node"
 else
-  echo 'Usage: build-bridge.sh [--universal]' >&2
+  echo 'Usage: build-bridge.sh [--universal|--test]' >&2
   exit 1
 fi

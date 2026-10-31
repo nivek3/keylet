@@ -34,7 +34,8 @@ if [[ "${4:-}" == '--universal' ]]; then
   lipo -create "$root/target/aarch64-apple-darwin/release/keylet" \
     "$root/target/x86_64-apple-darwin/release/keylet" \
     -output "$app/Contents/MacOS/keylet"
-  lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/keylet"
+  lipo "$app/Contents/MacOS/keylet" -verify_arch arm64
+  lipo "$app/Contents/MacOS/keylet" -verify_arch x86_64
 else
   cargo build --release --locked --manifest-path "$root/Cargo.toml" -p wallet-app
   cp "$root/target/release/keylet" "$app/Contents/MacOS/keylet"

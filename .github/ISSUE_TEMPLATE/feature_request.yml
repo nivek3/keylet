@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest an improvement to Keylet.
+title: '[Feature]: '
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: Please search existing issues before submitting a request. Keep examples free of recovery phrases, private keys, and credentials.
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Problem or use case
+      description: Explain what you are trying to do and what currently gets in the way.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed_behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the outcome you want. A concrete usage example is helpful.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Other approaches (optional)
+      description: Describe any workarounds or alternatives you have tried.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional information (optional)
+      description: Add relevant links, mockups, or compatibility constraints.

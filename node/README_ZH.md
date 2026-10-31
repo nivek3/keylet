@@ -6,16 +6,17 @@
 
 需要 macOS 14+、Node.js 22+，以及单独构建并正确签名的 App。返回的私钥由调用进程控制，不要记录或持久化。
 
-## 从源码安装
+## 安装
 
-**当前尚未发布。** 请从源码构建，不要从 npm registry 安装。先[构建并签名 Keylet](../README_ZH.md#从源码开始)，然后在仓库根目录运行：
+**当前尚未发布。** 正式发布后，在业务项目中运行：
 
 ```sh
-pnpm --dir node install --frozen-lockfile --ignore-scripts
-pnpm --dir node run build
+npm install keylet
 ```
 
-构建会在 `node/` 下生成 `dist/index.js`、`dist/index.d.ts` 和 `dist/keylet.node`，目标为当前 Mac 架构。在其他 Node 项目中使用时，在该项目内运行 `npm install /absolute/path/keylet/node`。`keylet` 包不包含 `Keylet.app`；请将完整的已签名 App 安装到 `~/Applications` 或 `/Applications`。源码仓库内可直接使用 `build/Keylet.app`。
+发布包已包含 JavaScript、类型声明和预编译的原生模块，使用者无需自行编译 SDK。当前从源码开发的步骤见[开发与发布](#开发与发布)。
+
+`keylet` 包不包含 macOS App；请单独安装并打开 Bundle ID 为 `com.nivek3.keylet` 的完整已签名 App，让 macOS 登记其位置。自行构建 App 时，按[构建与签名说明](../README_ZH.md#从源码开始)准备，签名 profile 必须授权此 ID。
 
 ## 使用方式
 
@@ -35,19 +36,21 @@ const { publicKey, privateKey } = await getKeyPair({
 
 结果均为 `0x` hex。secp256k1 返回 32 字节私钥标量和 33 字节压缩公钥；Ed25519 返回 32 字节子 seed 和 32 字节公钥。不要记录或持久化私钥，业务自行管理签名库。
 
-桥接优先查找 `~/Applications` 和 `/Applications` 中的 `Keylet.app`。源码仓库内还可找到 `build/Keylet.app`；其他位置通过 `helperPath` 指定 `Keylet.app/Contents/MacOS/keylet` 的绝对路径。npm 包不包含应用，App 与原生模块应一起构建。包为 ESM，CommonJS 可用 `await import('keylet')`。
+桥接通过 macOS Launch Services 查询 Bundle ID **`com.nivek3.keylet`**，选择系统优先的已登记副本，并从应用元数据读取主程序位置。App 可以改名或移动，但 macOS 需要登记其当前位置。找不到应用时返回 `KEYLET_APP_NOT_FOUND`；选中的应用包或可执行文件无效时返回 `HELPER_START_FAILED`，不会静默改用其他副本。
+
+SDK 始终通过此 Bundle ID 查找 App，不提供路径覆盖参数，传入未知的钱包选择字段会被拒绝。Bundle ID 匹配用于定位候选应用；SDK 暂未在启动前校验发布者签名身份，应使用可信安装。npm 包不包含应用，App 与原生模块应一起构建。包为 ESM，CommonJS 可用 `await import('keylet')`。
 
 每个 Node 进程通过独立私有管道复用自己的 macOS 认证上下文。默认有效期为 300 秒，从认证成功开始固定计时，连续调用不会续期。不缓存密钥或失败结果，每次调用仍重新读取 Keychain。只能从主线程调用，不同 Node 进程与 App 界面操作分别认证。
 
 在 App 的 **… → Settings → Node authentication** 中输入非负整数分钟并保存，默认 5 分钟，`0` 表示每次认证。不设业务上限，数值需能转换为无符号 64 位整数秒。设置从下一次 Node 调用生效，包括已有会话。App 内显示助记词和删除钱包始终重新认证。
 
-可选参数 `authenticationTtl` 指定更短的有效期，单位秒，接受非负 JavaScript 安全整数；不传则跟随 App 设置，`0` 表示每次认证。App 设置为上限，调用方不能覆盖。修改参数会启动新的辅助进程会话。
+可选参数 `authTTL` 指定更短的有效期，单位秒，接受非负 JavaScript 安全整数；不传则跟随 App 设置，`0` 表示每次认证。App 设置为上限，调用方不能覆盖。修改参数会启动新的辅助进程会话。
 
 ```ts
 const keys = await getKeyPair({
   name: 'trading',
   curve: 'secp256k1',
-  authenticationTtl: 0,
+  authTTL: 0,
 });
 ```
 
@@ -55,7 +58,7 @@ Node 进程退出后会话失效。失败会终止辅助进程，后续显式调
 
 ## 运行示例
 
-从仓库的 `node/` 目录执行，`trading` 是 App 中已保存的钱包名称：
+先构建 SDK，示例通过 `keylet` 公开入口加载构建产物。从仓库的 `node/` 目录执行，`trading` 是 App 中已保存的钱包名称：
 
 ```sh
 node --import tsx examples/ethers-v5.ts trading 2
@@ -73,7 +76,7 @@ node --import tsx examples/ed25519.ts trading "m/44'/501'/2'/0'"
 | 错误 | 检查项 |
 | --- | --- |
 | `NOT_FOUND` | 名称必须与 App 中的钱包一致；示例不会创建 `trading` 或 `demo` |
-| `KEYLET_APP_NOT_FOUND` | 安装完整 App，或指定 `helperPath`；npm 包不包含 App |
+| `KEYLET_APP_NOT_FOUND` | 安装并打开 Bundle ID 为 `com.nivek3.keylet` 的 App；npm 包不包含 App |
 | `KEYLET_BRIDGE_NOT_BUILT` | 检查原生模块是否构建、架构是否正确，原始加载错误位于 `cause` |
 | `SIGNING_CONFIGURATION` | 按签名说明检查证书、profile、bundle ID 和私有访问组 |
 | `SETTINGS_ERROR` | 打开 App 的 Settings，重新保存认证选项 |

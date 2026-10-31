@@ -6,16 +6,17 @@
 
 Requires macOS 14+, Node.js 22+, and a separately built, correctly signed app. Returned private keys are controlled by the calling process; never log or persist them.
 
-## Install from source
+## Install
 
-**Not released yet.** Build from the source checkout instead of installing from the npm registry. First [build and sign Keylet](../README.md#try-it-from-source), then run from the repository root:
+**Not released yet.** After publication, install the SDK in your Node project with:
 
 ```sh
-pnpm --dir node install --frozen-lockfile --ignore-scripts
-pnpm --dir node run build
+npm install keylet
 ```
 
-The build produces `dist/index.js`, `dist/index.d.ts`, and `dist/keylet.node` inside `node/`, targeting the current Mac architecture. To use it in another Node project, run `npm install /absolute/path/keylet/node` there. The `keylet` package does not include `Keylet.app`; install the complete signed app in `~/Applications` or `/Applications`. In the source checkout, the SDK can use `build/Keylet.app` directly.
+The published package includes JavaScript, type declarations, and a precompiled native module; users do not need to build the SDK. For current source development, see [Development and publishing](#development-and-publishing).
+
+The `keylet` package does not include the macOS app. Install and open the complete signed app with Bundle ID `com.nivek3.keylet` so macOS registers its location. To build the app from source, follow the [build and signing instructions](../README.md#try-it-from-source); the signing profile must authorize this ID.
 
 ## Usage
 
@@ -35,19 +36,21 @@ const { publicKey, privateKey } = await getKeyPair({
 
 Both result fields are `0x` hex strings. secp256k1 returns a 32-byte private scalar and 33-byte compressed public key; Ed25519 returns a 32-byte child seed and 32-byte public key. Never log or persist private keys. Your application manages its own signing library.
 
-The bridge finds `Keylet.app` in `~/Applications` or `/Applications`. In the source checkout, it can also find `build/Keylet.app`. Otherwise pass the absolute path to `Keylet.app/Contents/MacOS/keylet` as `helperPath`. The app bundle is not included in this npm package; build the app and addon together. Use ESM, or `await import('keylet')` from CommonJS.
+The bridge queries macOS Launch Services for Bundle ID **`com.nivek3.keylet`**, uses the system's preferred registered copy, and reads the main executable from the app's metadata. Renaming or moving the app does not require a fixed filename; macOS must have its current location registered. A missing app produces `KEYLET_APP_NOT_FOUND`; an invalid selected bundle or executable produces `HELPER_START_FAILED`, without trying another copy.
+
+App discovery always uses this Bundle ID; there is no path override. Unknown selection fields are rejected. Bundle ID matching identifies a candidate; the SDK does not yet verify the publisher's signing identity before launch. Only use trusted app installations. The app bundle is not included in this npm package; build the app and addon together. Use ESM, or `await import('keylet')` from CommonJS.
 
 Calls reuse a macOS authentication context in a private helper belonging to the current Node process. The fixed window starts after successful authentication and defaults to 300 seconds; repeated calls do not extend it. Keys and failures are not cached. Each call reads Keychain again. Calls must originate from the main thread; different Node processes and App UI operations authenticate separately.
 
 In **… → Settings → Node authentication**, enter a non-negative whole number of minutes and save. The default is 5; `0` authenticates every time. There is no policy maximum; values must fit in unsigned 64-bit seconds. Changes apply to the next Node request, including existing sessions. App recovery-phrase reveals and deletions always require fresh authentication.
 
-`authenticationTtl` optionally requests a shorter window in seconds (a non-negative JavaScript safe integer). Omit it to follow the app setting. `0` requires authentication on every call. The app setting is an upper bound: a caller cannot override it. Changing this parameter starts a fresh helper session.
+`authTTL` optionally requests a shorter window in seconds (a non-negative JavaScript safe integer). Omit it to follow the app setting. `0` requires authentication on every call. The app setting is an upper bound: a caller cannot override it. Changing this parameter starts a fresh helper session.
 
 ```ts
 const keys = await getKeyPair({
   name: 'trading',
   curve: 'secp256k1',
-  authenticationTtl: 0,
+  authTTL: 0,
 });
 ```
 
@@ -55,7 +58,7 @@ Helper state disappears when the Node process exits. Failures terminate the help
 
 ## Run the examples
 
-From the repository's `node/` directory, using a wallet already saved as `trading`:
+Build the SDK first. The examples load the built package through its public `keylet` entry point. From the repository's `node/` directory, using a wallet already saved as `trading`:
 
 ```sh
 node --import tsx examples/ethers-v5.ts trading 2
@@ -73,7 +76,7 @@ Node.js 22+ is the supported target. Bun's Node-API support may run these exampl
 | Error | What to check |
 | --- | --- |
 | `NOT_FOUND` | The wallet name must match the app; examples never create `trading` or `demo` |
-| `KEYLET_APP_NOT_FOUND` | Install the complete app or set `helperPath`; npm does not include the app |
+| `KEYLET_APP_NOT_FOUND` | Install and open the app with Bundle ID `com.nivek3.keylet`; npm does not include the app |
 | `KEYLET_BRIDGE_NOT_BUILT` | Check addon build and CPU architecture; `cause` contains the original load error |
 | `SIGNING_CONFIGURATION` | Check certificate, profile, bundle ID, and private access group using the signing guide |
 | `SETTINGS_ERROR` | Open the app Settings and save an authentication option again |

@@ -171,7 +171,8 @@ jobs:
           test -L "$mount_point/Applications"
           test "$(readlink "$mount_point/Applications")" = /Applications
           app="$mount_point/Keylet.app"
-          lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/keylet"
+          lipo "$app/Contents/MacOS/keylet" -verify_arch arm64
+          lipo "$app/Contents/MacOS/keylet" -verify_arch x86_64
           codesign --verify --strict --verbose=2 "$app"
           xcrun stapler validate "$app"
           spctl --assess --type execute --verbose=2 "$app"

@@ -9,6 +9,7 @@ license = "MIT"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+core-foundation = "=0.10.1"
 napi = { version = "=3.15.0", default-features = false, features = [
 	"napi8",
 	"serde-json",

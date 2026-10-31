@@ -1,4 +1,4 @@
-import { getKeyPair } from '../src/index.js';
+import { getKeyPair } from 'keylet';
 
 const [name, path] = process.argv.slice(2);
 if (!name || !path) throw new Error('Pass a saved wallet name and its full hardened derivation path');

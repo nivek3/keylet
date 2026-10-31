@@ -115,12 +115,16 @@ jobs:
           cd "$RUNNER_TEMP/npm-smoke"
           npm init --yes >/dev/null
           npm install --ignore-scripts --no-audit --no-fund "$RUNNER_TEMP"/npm-release/*.tgz
-          lipo -verify_arch arm64 x86_64 node_modules/keylet/dist/keylet.node
+          lipo node_modules/keylet/dist/keylet.node -verify_arch arm64
+          lipo node_modules/keylet/dist/keylet.node -verify_arch x86_64
           node --input-type=module <<'JS'
           import assert from 'node:assert/strict';
+          import { createRequire } from 'node:module';
           import { getKeyPair } from 'keylet';
+          const bridge = createRequire(import.meta.url)('./node_modules/keylet/dist/keylet.node');
+          assert.equal('getKeyPairForTest' in bridge, false);
           await assert.rejects(
-            getKeyPair({ name: '', curve: 'secp256k1', helperPath: '/definitely-missing-keylet-helper' }),
+            getKeyPair({ name: '', curve: 'secp256k1' }),
             { message: 'Invalid wallet selection' },
           );
           JS

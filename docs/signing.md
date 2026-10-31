@@ -22,7 +22,7 @@ From the repository root:
 bash scripts/build-native.sh \
   'Apple Development: Your Name (TEAMID)' \
   '/absolute/path/App.provisionprofile' \
-  'com.example.keychain-wallet'
+  'com.nivek3.keylet'
 ```
 
 The script reads the public profile metadata, validates its expiry and authorization, builds the Rust executable, embeds the profile, signs with Hardened Runtime, and verifies the signature. The profile's App Identifier Prefix determines the private access group; it is not assumed to equal Team ID. The output is `build/Keylet.app`. An existing output is replaced only after the new bundle passes signature verification. Both bundle version fields follow `crates/app/Cargo.toml`; use a numeric `major.minor.patch` version.
@@ -34,7 +34,7 @@ rustup target add aarch64-apple-darwin x86_64-apple-darwin
 bash scripts/build-native.sh \
   'Developer ID Application: Your Name (TEAMID)' \
   '/absolute/path/App.provisionprofile' \
-  'com.example.keychain-wallet' --universal
+  'com.nivek3.keylet' --universal
 ```
 
 ```sh
@@ -44,11 +44,11 @@ build/Keylet.app/Contents/MacOS/keylet check-signing
 
 `check-signing` validates public signing configuration. It does not establish that real Keychain authentication succeeds. Use an unfunded test wallet in a logged-in graphical session to check authentication and cancellation.
 
-For local Node use, the SDK discovers `build/Keylet.app` from this source checkout. For a separate installation, place the complete app in `~/Applications` or `/Applications`, or specify the executable's absolute path as `helperPath`.
+The Node SDK discovers the official Bundle ID `com.nivek3.keylet` through macOS Launch Services and reads the bundle's main executable location. Open a source-built or moved app once to register its location. Renaming the app does not change the lookup ID. The Node SDK has no path override and requires this Bundle ID for source builds too. Automatic lookup checks Bundle ID metadata; publisher-signature verification before launch is not yet implemented in the SDK.
 
 ## Renewal
 
-The app is `Keylet.app`, with executable `Contents/MacOS/keylet`. The Keychain service and `Library/Application Support/KeychainWallet` directory keep their existing storage identifiers to preserve local wallets and settings. Reuse the same signing identity, bundle ID, and authorized access group when rebuilding.
+The default app name is `Keylet.app`, with executable `Contents/MacOS/keylet`; the official SDK lookup ID is `com.nivek3.keylet`. The Keychain service and `Library/Application Support/KeychainWallet` directory keep their existing storage identifiers to preserve local wallets and settings. Reuse the same signing identity, bundle ID, and authorized access group when rebuilding. Keep existing development apps with another ID separate: changing their ID to match the SDK target can lose access to their existing Keychain group.
 
 Renew Personal Team assets through Xcode, then rerun the script with the current profile and matching identity. Keep the bundle ID and authorized access group stable when retaining saved wallets. Profiles do not back up wallet data; keep an independent offline recovery backup.
 
@@ -76,7 +76,7 @@ In **Settings → Secrets and variables → Actions**, configure these repositor
 
 | Type | Name | Value |
 | --- | --- | --- |
-| Variable | `APPLE_BUNDLE_ID` | Production bundle ID authorized by the profile; keep it stable across updates. |
+| Variable | `APPLE_BUNDLE_ID` | `com.nivek3.keylet` for the official release; the profile must authorize it. Keep existing deployments' IDs stable across updates. |
 | Variable | `APPLE_SIGNING_IDENTITY` | Full `Developer ID Application: … (…)` identity matching the exported certificate. |
 | Secret | `APPLE_CERTIFICATE` | Base64-encoded `.p12` containing the Developer ID Application certificate and its private key. |
 | Secret | `APPLE_CERTIFICATE_PASSWORD` | Password protecting that `.p12`. |

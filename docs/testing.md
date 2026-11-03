@@ -16,6 +16,16 @@ Ed25519 tests check the Solana backend against official SLIP-0010 vectors and pu
 
 App discovery tests use synthetic bundles to cover renamed apps, executable metadata, and mismatched Bundle IDs. Invalid-input tests reject removed path overrides and unknown fields before discovery. These tests do not register or launch real apps.
 
+## CI
+
+`Checks` generates TypeScript declarations, checks TypeScript, and runs Python packaging tests on Ubuntu in parallel with Rust tests, the release addon build, and Node integration tests on macOS. Declarations are needed for the examples' package-name imports in a clean checkout. The macOS job uses `MACOSX_DEPLOYMENT_TARGET=14.0` throughout, matching the bridge build script so Cargo can reuse compiled dependencies. Export the same value locally before running the commands above to avoid rebuilding dependencies between Rust tests and the bridge build.
+
+PR updates cancel older `Checks` runs for the same PR. Each push to `main` has a unique concurrency group and completes independently, including documentation changes. PRs changing only Markdown or `docs/` files do not trigger `Checks`; mixed source and documentation changes still run both jobs. Manual runs remain available.
+
+The repository currently has no required status checks. Before making either job required, replace the workflow-level PR path filter with job-level change detection and an always-running required result job; otherwise documentation-only PRs will wait for a check that never runs. GitHub documents this behavior in its [path-filter reference](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onpushpull_requestpull_request_targetpathspaths-ignore).
+
+Node jobs cache the pnpm store through `setup-node`, keyed by `node/pnpm-lock.yaml`. Rust jobs use `Swatinem/rust-cache` for registry and dependency build outputs, without caching installed binaries. Ubuntu does not restore Rust outputs. Release workflows keep separate Rust caches because their universal release targets differ from the check job; signing assets and packaged releases are not cached.
+
 ## Interactive checks
 
 Use an unfunded test wallet and complete authentication locally. Check creation, backup confirmation, import, key reads, cancellation, Touch ID or password fallback, and profile renewal. Do not send recovery phrases or private keys to chat. Automated tests do not delete real wallets or execute blockchain transactions.

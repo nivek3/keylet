@@ -29,6 +29,7 @@ jobs:
         shell: bash
     env:
       RELEASE_TAG: ${{ inputs.tag }}
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
 
     steps:
       - name: Validate release tag
@@ -43,10 +44,16 @@ jobs:
           ref: refs/tags/${{ inputs.tag }}
           persist-credentials: false
 
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          package_json_file: node/package.json
+
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '26'
           registry-url: https://registry.npmjs.org
+          cache: pnpm
+          cache-dependency-path: node/pnpm-lock.yaml
 
       - name: Check package version against tag
         run: |
@@ -68,15 +75,16 @@ jobs:
             exit 1
           fi
 
-      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
-        with:
-          package_json_file: node/package.json
-
       - name: Install Rust targets
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-bin: false
+          env-vars: MACOSX_DEPLOYMENT_TARGET
 
       - name: Install development dependencies
         run: pnpm --dir node install --frozen-lockfile --ignore-scripts

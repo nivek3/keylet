@@ -4,37 +4,76 @@ on:
   push:
     branches: [main]
   pull_request:
+    # No required checks currently; revisit this filter before requiring a job.
+    paths:
+      - '**'
+      - '!**/*.md'
+      - '!docs/**'
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: checks-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  macos:
+  portable:
     if: github.event.repository.private == false
-    runs-on: macos-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '26'
       - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
         with:
           package_json_file: node/package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '26'
+          cache: pnpm
+          cache-dependency-path: node/pnpm-lock.yaml
+      - name: Install Node development dependencies
+        run: pnpm --dir node install --frozen-lockfile --ignore-scripts
+      - name: Check TypeScript
+        run: pnpm --dir node run check
+      - name: Packaging tests
+        run: python3 -m unittest discover -s tests -p 'test_*.py'
+
+  macos:
+    if: github.event.repository.private == false
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      # Match build-bridge.sh so Cargo can reuse dependencies across steps.
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          package_json_file: node/package.json
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '26'
+          cache: pnpm
+          cache-dependency-path: node/pnpm-lock.yaml
       - name: Install Rust
         run: |
           rustup toolchain install stable --profile minimal
           rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-bin: false
+          env-vars: MACOSX_DEPLOYMENT_TARGET
       - name: Install Node development dependencies
         run: pnpm --dir node install --frozen-lockfile --ignore-scripts
-      - name: Rust and packaging tests
-        run: bash scripts/check-native.sh
+      - name: Rust tests
+        run: cargo test --workspace --locked
       - name: Build Node addon and declarations
         run: pnpm --dir node run build
-      - name: Check TypeScript and Node integration
-        run: |
-          pnpm --dir node run check
-          pnpm --dir node test
+      - name: Node integration tests
+        run: pnpm --dir node test

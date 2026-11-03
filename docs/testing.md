@@ -18,7 +18,7 @@ App discovery tests use synthetic bundles to cover renamed apps, executable meta
 
 ## CI
 
-`Checks` runs TypeScript checking and Python packaging tests on Ubuntu in parallel with Rust tests, the release addon build, and Node integration tests on macOS. The macOS job uses `MACOSX_DEPLOYMENT_TARGET=14.0` throughout, matching the bridge build script so Cargo can reuse compiled dependencies. Export the same value locally before running the commands above to avoid rebuilding dependencies between Rust tests and the bridge build.
+`Checks` generates TypeScript declarations, checks TypeScript, and runs Python packaging tests on Ubuntu in parallel with Rust tests, the release addon build, and Node integration tests on macOS. Declarations are needed for the examples' package-name imports in a clean checkout. The macOS job uses `MACOSX_DEPLOYMENT_TARGET=14.0` throughout, matching the bridge build script so Cargo can reuse compiled dependencies. Export the same value locally before running the commands above to avoid rebuilding dependencies between Rust tests and the bridge build.
 
 PR updates cancel older `Checks` runs for the same PR. Each push to `main` has a unique concurrency group and completes independently, including documentation changes. PRs changing only Markdown or `docs/` files do not trigger `Checks`; mixed source and documentation changes still run both jobs. Manual runs remain available.
 

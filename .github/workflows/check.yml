@@ -38,7 +38,9 @@ jobs:
       - name: Install Node development dependencies
         run: pnpm --dir node install --frozen-lockfile --ignore-scripts
       - name: Check TypeScript
-        run: pnpm --dir node run check
+        run: |
+          pnpm --dir node exec tsc -p tsconfig.json
+          pnpm --dir node run check
       - name: Packaging tests
         run: python3 -m unittest discover -s tests -p 'test_*.py'
 

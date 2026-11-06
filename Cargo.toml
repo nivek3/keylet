@@ -1,9 +1,86 @@
 [workspace]
-members = ["crates/crypto", "crates/node", "crates/app"]
+members = ["crates/app", "crates/crypto", "crates/node"]
 resolver = "2"
+
+[workspace.package]
+rust-version = "1.98.0"
+version = "0.1.0"
+authors = ["nivek <h49987180@gmail.com>"]
+edition = "2021"
+publish = false
+license = "MIT"
+repository = "https://github.com/nivek3/keylet"
+readme = "README.md"
+description = "A local key provider for Ethereum and Solana on macOS"
+keywords = ["keylet", "ethereum", "solana", "macos", "wallet"]
 
 [workspace.dependencies]
 wallet-crypto = { path = "crates/crypto" }
+
+bip32 = { version = "=0.6.0", default-features = false, features = [
+	"alloc",
+	"secp256k1",
+] }
+bip39 = { version = "=3.0.0", features = ["zeroize"] }
+block2 = "0.6"
+bs58 = "=0.5.1"
+core-foundation = "=0.10.1"
+derivation-path = "=0.2.0"
+eframe = { version = "=0.33.3", default-features = false, features = [
+	"default_fonts",
+	"glow",
+	"accesskit",
+] }
+k256 = { version = "=0.13.4", default-features = false, features = [
+	"std",
+	"ecdsa",
+] }
+libc = "=0.2.191"
+napi = { version = "=3.15.0", default-features = false, features = [
+	"napi8",
+	"serde-json",
+	"tokio_rt",
+] }
+napi-build = "=2.6.0"
+napi-derive = "=3.6.13"
+objc2 = "0.6"
+objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
+	"std",
+	"NSApplication",
+	"NSPasteboard",
+	"NSEvent",
+	"NSResponder",
+	"NSRunningApplication",
+	"NSAlert",
+	"NSWindow",
+	"NSView",
+	"NSVisualEffectView",
+	"NSGraphics",
+	"NSColor",
+	"NSWorkspace",
+	"NSAccessibility",
+	"block2",
+] }
+objc2-foundation = { version = "=0.3.2", default-features = false, features = [
+	"std",
+	"NSBundle",
+	"NSString",
+] }
+objc2-local-authentication = { version = "=0.3.2", default-features = false, features = [
+	"std",
+	"LAContext",
+] }
+security-framework-sys = { version = "=2.17.0", features = ["OSX_10_15"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "=1.0.154"
+sha3 = "=0.12.0"
+solana-ed25519 = { version = "=0.2.4", default-features = false, features = [
+	"digest",
+	"precomputed-tables",
+	"zeroize",
+] }
+tokio = { version = "1", features = ["rt"] }
+zeroize = "=1.9.1"
 
 [profile.release]
 strip = "symbols"

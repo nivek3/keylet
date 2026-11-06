@@ -1,9 +1,9 @@
 [package]
 name = "wallet-app"
-version = "0.1.0"
-edition = "2021"
-publish = false
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
 description.workspace = true
 
 [[bin]]
@@ -12,16 +12,17 @@ path = "src/main.rs"
 
 [dependencies]
 wallet-crypto = { workspace = true }
-eframe = { version = "=0.33.3", default-features = false, features = ["default_fonts", "glow", "accesskit"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "=1.0.154"
-zeroize = { version = "=1.9.1", features = ["derive"] }
-libc = "=0.2.191"
-core-foundation = "=0.10.1"
-security-framework-sys = { version = "=2.17.0", features = ["OSX_10_15"] }
-objc2 = "0.6"
-objc2-foundation = { version = "=0.3.2", default-features = false, features = ["std", "NSBundle", "NSString"] }
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = ["std", "NSApplication", "NSPasteboard", "NSEvent", "NSResponder", "NSRunningApplication", "NSAlert", "NSWindow", "NSView", "NSVisualEffectView", "NSGraphics", "NSColor", "NSWorkspace", "NSAccessibility", "block2"] }
-objc2-local-authentication = { version = "=0.3.2", default-features = false, features = ["std", "LAContext"] }
-block2 = "0.6"
-bs58 = "=0.5.1"
+
+block2.workspace = true
+bs58.workspace = true
+core-foundation.workspace = true
+eframe.workspace = true
+libc.workspace = true
+objc2.workspace = true
+objc2-app-kit.workspace = true
+objc2-foundation.workspace = true
+objc2-local-authentication.workspace = true
+security-framework-sys.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zeroize = { workspace = true, features = ["derive"] }

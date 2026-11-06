@@ -65,7 +65,7 @@ The npm package does not include the macOS app. Build both before using the SDK.
 
    The Node SDK discovers Bundle ID `com.nivek3.keylet` through macOS and has no path override. Your profile must authorize this ID to build an app for the SDK. Keep an existing app's Bundle ID and Keychain group unchanged to retain wallet access; an older app with another ID remains separate from the SDK's lookup target.
 
-3. Click **+** and create or import a wallet named `trading`; examples do not create it automatically. Back up new recovery phrases and confirm all words, or explicitly choose **Skip** to save without verifying the backup. For import, verify the account with an independently known Ethereum address or Ed25519 public key. You can view a saved phrase through **Seed phrase**, after macOS authentication.
+3. Choose **Add wallet** or **+** and create or import a wallet named `trading`. For a new wallet, back up the seed phrase and verify all words. **Skip & save** saves the wallet without verifying the backup. For import, verify the account with an independently known Ethereum address or Ed25519 public key. Open **Seed phrase** in wallet details to view the saved phrase after macOS authentication.
 
 4. Build the SDK and run an example:
 

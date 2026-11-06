@@ -8,11 +8,10 @@ use core_foundation::{
     number::CFNumber,
     string::{CFString, CFStringRef},
 };
-use objc2::{rc::Retained, runtime::AnyObject, MainThreadMarker, MainThreadOnly};
+use objc2::{rc::Retained, runtime::AnyObject, MainThreadMarker};
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSEvent, NSEventMask, NSEventModifierFlags,
-    NSPasteboard, NSAutoresizingMaskOptions, NSColor, NSVisualEffectBlendingMode,
-    NSVisualEffectMaterial, NSVisualEffectState, NSVisualEffectView, NSWindowOrderingMode, NSWorkspace,
+    NSApplication, NSApplicationActivationPolicy, NSColor, NSEvent, NSEventMask,
+    NSEventModifierFlags, NSPasteboard,
 };
 use objc2_foundation::{NSBundle, NSString};
 use objc2_local_authentication::LAContext;
@@ -394,29 +393,19 @@ impl Vault {
     }
 }
 
-pub fn configure_window_material() -> Result<()> {
+pub fn configure_window_background([red, green, blue]: [u8; 3]) -> Result<()> {
     let mtm = MainThreadMarker::new().ok_or(Failure::Configuration)?;
-    // eframe has created the sole app window before invoking its app-creation callback.
     let window = NSApplication::sharedApplication(mtm).windows().firstObject()
         .ok_or(Failure::Configuration)?;
-    let view = window.contentView().ok_or(Failure::Configuration)?;
-    // A child view would cover egui's OpenGL drawing; keep the material behind its view instead.
-    let container = unsafe { view.superview() }.ok_or(Failure::Configuration)?;
-    let material = NSVisualEffectView::initWithFrame(NSVisualEffectView::alloc(mtm), container.bounds());
-    material.setMaterial(NSVisualEffectMaterial::Sidebar);
-    material.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
-    material.setState(NSVisualEffectState::Active);
-    material.setAlphaValue(if NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceTransparency() {
-        1.0
-    } else { 0.86 });
-    material.setAutoresizingMask(
-        NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
+    let background = NSColor::colorWithSRGBRed_green_blue_alpha(
+        f64::from(red) / 255.0,
+        f64::from(green) / 255.0,
+        f64::from(blue) / 255.0,
+        1.0,
     );
-    container.addSubview_positioned_relativeTo(&material, NSWindowOrderingMode::Below, Some(&view));
-    // Both retained views remain alive while checking the newly attached parent.
-    debug_assert!(unsafe { material.superview() }.is_some());
-    window.setOpaque(false);
-    window.setBackgroundColor(Some(&NSColor::clearColor()));
+    // AppKit can expose this background before the resized OpenGL frame is ready.
+    window.setOpaque(true);
+    window.setBackgroundColor(Some(&background));
     window.setTitlebarAppearsTransparent(true);
     Ok(())
 }

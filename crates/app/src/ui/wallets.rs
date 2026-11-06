@@ -1,10 +1,10 @@
-use super::{revealed_card, Stage, WalletApp};
+use super::{revealed_card, Stage, WalletApp, MIN_RECOVERY_CARD_HEIGHT};
 use crate::{
     catalog::Catalog,
     model::{WalletSummary, DEFAULT_ETH_PATH, DEFAULT_SOL_PATH},
     theme,
 };
-use eframe::egui::{self, Align, Frame, Id, Layout, Margin, RichText};
+use eframe::egui::{self, Align, Frame, Id, Layout, Margin};
 use std::time::Instant;
 
 fn wallet_search(ui: &mut egui::Ui, search: &mut String) -> egui::Response {
@@ -63,24 +63,10 @@ impl WalletApp {
             .iter()
             .filter(|entry| entry.matches(&self.search))
         {
-            let address = entry
-                .ethereum_address
-                .as_ref()
-                .or(entry.solana_address.as_ref());
-            let subtitle = address
-                .map(|value| {
-                    if value.len() > 8 {
-                        format!("{}…{}", &value[..4], &value[value.len() - 4..])
-                    } else {
-                        value.clone()
-                    }
-                })
-                .unwrap_or_else(|| "Not synced".into());
             ui.push_id(&entry.name, |ui| {
                 if theme::wallet_row(
                     ui,
                     &entry.name,
-                    &subtitle,
                     selected.as_ref() == Some(&entry.name),
                     compact,
                 )
@@ -94,94 +80,55 @@ impl WalletApp {
         if let Some(name) = clicked {
             self.select_wallet(name);
         }
-        if selected.is_none() && !compact {
-            ui.add_space(24.0);
-            ui.vertical_centered(|ui| {
-                theme::hint(
-                    ui,
-                    if self.wallets.is_empty() {
-                        "No wallets yet"
-                    } else {
-                        "No results"
-                    },
-                );
-            });
-        }
+    }
+
+    fn add_wallet(&mut self) {
+        self.wipe_draft();
+        self.message.clear();
+        self.stage = Stage::Welcome;
     }
 
     pub(super) fn wallet_detail(&mut self, ui: &mut egui::Ui) {
         let Some(entry) = self.selected_entry().cloned() else {
             self.account_view = super::accounts::AccountView::default();
-            ui.add_space(100.0);
-            ui.vertical_centered(|ui| {
-                theme::app_icon(ui);
-                ui.add_space(16.0);
-                ui.label(
-                    RichText::new(if self.wallets.is_empty() { "Your wallets, kept private" } else { "No matching wallets" })
-                        .size(17.0)
-                        .strong(),
-                );
-                ui.add_space(6.0);
-                theme::hint(ui, if self.wallets.is_empty() {
-                    "Use + to create or import a wallet."
-                } else {
-                    "Try another wallet name or address."
-                });
-            });
+            if self.wallets.is_empty() {
+                if theme::primary(ui, "Add wallet").clicked() {
+                    self.add_wallet();
+                }
+            } else {
+                theme::page_header(ui, "No matching wallets", None);
+            }
             return;
         };
         if self.name != entry.name {
             self.revealed.clear();
         }
         self.account_view.select_wallet(&entry.name);
-        let width = ui.available_width().min(380.0);
-        ui.vertical_centered(|ui| {
-            ui.set_width(width);
-            theme::wallet_heading(ui, &entry.name);
-            ui.add_space(24.0);
-            Frame::new()
-                .show(ui, |ui| {
-                    ui.set_width(width);
-                    ui.with_layout(Layout::top_down(Align::Min), |ui| {
-                        theme::account_row(ui, "Ethereum", entry.ethereum_address.as_deref());
-                        ui.separator();
-                        theme::account_row(ui, "Solana", entry.solana_address.as_deref());
-                        ui.separator();
-                        ui.add_space(4.0);
-                        ui.collapsing(RichText::new("Derivation paths").size(12.0).color(theme::MUTED), |ui| {
-                            theme::label(ui, "Ethereum");
-                            ui.label(
-                                RichText::new(DEFAULT_ETH_PATH)
-                                    .monospace()
-                                    .color(theme::MUTED),
-                            );
-                            ui.add_space(4.0);
-                            theme::label(ui, "Solana");
-                            ui.label(
-                                RichText::new(DEFAULT_SOL_PATH)
-                                    .monospace()
-                                    .color(theme::MUTED),
-                            );
-                        });
-                    });
-                });
-            ui.add_space(12.0);
-            ui.collapsing("Derived account", |ui| self.derived_account(ui));
-            ui.add_space(20.0);
-            ui.horizontal(|ui| {
-                if theme::secondary(ui, "Seed phrase").clicked() {
-                    self.wipe_draft();
-                    self.name = entry.name.clone();
-                    self.selected_wallet = Some(entry.name.clone());
-                    self.recovery_card_height = 168.0;
-                    self.message.clear();
-                    self.stage = Stage::ViewPhrase;
+        theme::page_header(ui, &entry.name, None);
+        theme::account_row(ui, "Ethereum", entry.ethereum_address.as_deref());
+        ui.separator();
+        theme::account_row(ui, "Solana", entry.solana_address.as_deref());
+        ui.separator();
+        ui.add_space(8.0);
+        ui.collapsing("Default derivation paths", |ui| {
+            theme::account_row(ui, "Ethereum", Some(DEFAULT_ETH_PATH));
+            theme::account_row(ui, "Solana", Some(DEFAULT_SOL_PATH));
+        });
+        ui.collapsing("Derived account", |ui| self.derived_account(ui));
+        ui.add_space(16.0);
+        ui.horizontal(|ui| {
+            if theme::secondary(ui, "Seed phrase").clicked() {
+                self.wipe_draft();
+                self.name = entry.name.clone();
+                self.selected_wallet = Some(entry.name.clone());
+                self.recovery_card_height = MIN_RECOVERY_CARD_HEIGHT;
+                self.message.clear();
+                self.stage = Stage::ViewPhrase;
+            }
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if theme::secondary(ui, "Delete").clicked() {
+                    self.confirm_delete(vec![entry.name.clone()]);
                 }
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if theme::secondary(ui, "Delete").clicked() {
-                        self.confirm_delete(vec![entry.name.clone()]);
-                    }
-                });
             });
         });
     }
@@ -254,14 +201,14 @@ impl WalletApp {
                     theme::focus_ring(ui, more.rect, more.has_focus());
                     more.on_hover_text("More actions");
                 });
-                let add = theme::toolbar_button(ui, "+");
-                add.widget_info(|| egui::WidgetInfo::labeled(
-                    egui::WidgetType::Button, ui.is_enabled(), "Add wallet",
-                ));
-                if add.on_hover_text("Add wallet").clicked() {
-                    self.wipe_draft();
-                    self.message.clear();
-                    self.stage = Stage::Welcome;
+                if !self.wallets.is_empty() {
+                    let add = theme::toolbar_button(ui, "+");
+                    add.widget_info(|| egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button, ui.is_enabled(), "Add wallet",
+                    ));
+                    if add.on_hover_text("Add wallet").clicked() {
+                        self.add_wallet();
+                    }
                 }
             });
     }
@@ -272,10 +219,6 @@ impl WalletApp {
             self.clipboard.clear();
         }
         ui.add_space(8.0);
-        if self.stage == Stage::Wallets && !self.message.is_empty() {
-            ui.colored_label(theme::DANGER_INK, &self.message);
-            ui.add_space(8.0);
-        }
         egui::ScrollArea::vertical()
             .id_salt("wallet-list")
             .auto_shrink([false, false])
@@ -293,7 +236,7 @@ impl WalletApp {
             .resizable(expanded)
             .frame(
                 Frame::new()
-                    .fill(if self.vibrant_shell { theme::TRANSPARENT } else { theme::CANVAS })
+                    .fill(theme::CANVAS)
                     .inner_margin(Margin::symmetric(if expanded { 10 } else { 6 }, 12)),
             )
             .show_inside(ui, |ui| {
@@ -320,13 +263,9 @@ impl WalletApp {
             .frame(
                 Frame::new()
                     .fill(theme::CONTENT)
-                    .inner_margin(Margin::symmetric(24, 24)),
+                    .inner_margin(theme::PAGE_MARGIN),
             )
             .show_inside(ui, |ui| {
-                if self.stage == Stage::Wallets && !expanded && !self.message.is_empty() {
-                    ui.colored_label(theme::DANGER_INK, &self.message);
-                    ui.add_space(8.0);
-                }
                 self.page_content(ui, ctx, focused);
             });
     }
@@ -413,7 +352,7 @@ mod tests {
                         };
                         ui.add_space(8.0);
                         for name in ["First wallet", "Second wallet", "Third wallet"] {
-                            rows.push(theme::wallet_row(ui, name, "0x1234…abcd", false, !expanded).rect);
+                            rows.push(theme::wallet_row(ui, name, false, !expanded).rect);
                             ui.add_space(2.0);
                         }
                     });

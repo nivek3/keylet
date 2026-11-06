@@ -65,7 +65,7 @@ npm 包不包含 macOS App。使用 SDK 前，需要分别构建 App 和 SDK。
 
    Node SDK 通过 macOS 自动查找 Bundle ID 为 `com.nivek3.keylet` 的 App，不提供路径覆盖参数。用于 SDK 的 App 必须使用此 ID，并由 profile 授权。已有钱包的 App 应保持原 Bundle ID 和 Keychain 组，避免失去钱包访问权限；使用其他 ID 的旧 App 与 SDK 查找的目标相互独立。
 
-3. 点击 **+**，创建或导入名为 `trading` 的钱包，示例不会自动创建它。新建时备份助记词并确认全部词，也可明确选择 **Skip**，不验证备份直接保存。导入时提供独立已知的 Ethereum 地址或 Ed25519 公钥核对账户。之后可通过 **Seed phrase**，经 macOS 认证查看已保存的助记词。
+3. 点击 **Add wallet** 或 **+**，创建或导入名为 `trading` 的钱包。新建时备份助记词并验证所有单词。**Skip & save** 会跳过备份验证并保存钱包。导入时提供独立已知的 Ethereum 地址或 Ed25519 公钥核对账户。在钱包详情打开 **Seed phrase**，经 macOS 认证后即可查看已保存的助记词。
 
 4. 构建 SDK 并运行示例：
 

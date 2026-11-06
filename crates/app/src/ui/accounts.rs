@@ -68,24 +68,29 @@ impl AccountView {
         ui.add_space(8.0);
         ui.checkbox(&mut self.full_path, "Use full derivation path");
         if self.full_path {
-            theme::public_field(ui, "Derivation path", &mut self.path, 128);
+            let label = if self.curve == Curve::Ed25519 {
+                "Hardened derivation path"
+            } else {
+                "Derivation path"
+            };
+            theme::public_field(ui, label, &mut self.path, 128);
         } else {
             theme::public_field(ui, "Account index", &mut self.index, 10);
         }
-        if self.curve == Curve::Ed25519 {
-            theme::hint(ui, "Solana uses m/44'/501'/index'/0'. Use the original wallet's full hardened path if different.");
-        }
         let request = self.request();
         if let Ok(request) = &request {
-            theme::label(ui, "Path");
-            ui.add(egui::Label::new(egui::RichText::new(&request.path).monospace().size(12.0)).wrap());
+            ui.add(
+                egui::Label::new(egui::RichText::new(&request.path).monospace()).wrap(),
+            );
+        } else if !self.full_path {
+            let height = ui.text_style_height(&egui::TextStyle::Monospace);
+            ui.allocate_space(egui::vec2(0.0, height));
         }
         if previous != (self.curve, self.full_path, self.index.clone(), self.path.clone()) {
             self.address = None;
             self.message.clear();
         }
         ui.add_space(8.0);
-        theme::hint(ui, "Authenticate to derive this address. Only the public address is displayed.");
         let focused = ui.ctx().input(|input| input.focused);
         if ui.add_enabled_ui(focused, |ui| {
             theme::primary(ui, "Authenticate and view")
@@ -137,6 +142,40 @@ impl WalletApp {
 mod tests {
     use super::*;
     use crate::model::StoredWallet;
+
+    #[test]
+    fn editing_account_index_keeps_the_derive_button_in_place() {
+        let ctx = egui::Context::default();
+        theme::configure(&ctx);
+        let mut view = AccountView::default();
+        view.select_wallet("public-test");
+        let mut positions = Vec::new();
+        for index in ["0", "", "2147483648", "2147483647", "2"] {
+            view.index = index.into();
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(270.0, 300.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        assert!(view.inputs(ui).is_none());
+                    });
+                },
+            );
+            let button_y = output.shapes.iter().find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == "Authenticate and view" => {
+                    Some(text.pos.y)
+                }
+                _ => None,
+            });
+            positions.push(button_y.expect("derive button should be visible"));
+        }
+        assert!(positions.iter().all(|y| (y - positions[0]).abs() < 0.5), "{positions:?}");
+    }
 
     #[test]
     fn account_indices_and_custom_paths_use_the_selected_curve() {

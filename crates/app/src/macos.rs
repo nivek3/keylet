@@ -27,8 +27,7 @@ use std::{
 use zeroize::Zeroizing;
 
 type Dict = CFDictionary<CFString, CFType>;
-const WALLET_SERVICE: &str = "local.keychain-wallet.mnemonic.v1";
-const SETTINGS_SERVICE: &str = "local.keychain-wallet.settings.v1";
+const SETTINGS_SERVICE: &str = "local.keylet.settings.v1";
 const NODE_TTL_ACCOUNT: &str = "node-authentication-ttl";
 const ITEM_NOT_FOUND: i32 = -25300;
 const DUPLICATE_ITEM: i32 = -25299;
@@ -228,7 +227,7 @@ impl Vault {
         Ok(Self { group })
     }
     fn query(&self, name: Option<&str>) -> Vec<(CFString, CFType)> {
-        self.item_query(WALLET_SERVICE, name)
+        self.item_query("local.keylet.mnemonic.v1", name)
     }
     fn item_query(&self, service: &str, name: Option<&str>) -> Vec<(CFString, CFType)> {
         // SAFETY: Security exports these CFString constants for the lifetime of the process.
@@ -261,7 +260,7 @@ impl Vault {
             pairs
         }
     }
-    pub fn authentication_ttl(&self) -> Result<Option<u64>> {
+    pub fn authentication_ttl(&self) -> Result<u64> {
         // SAFETY: The query owns its attributes. A successful lookup returns a retained object.
         unsafe {
             let mut query = self.item_query(SETTINGS_SERVICE, Some(NODE_TTL_ACCOUNT));
@@ -270,13 +269,13 @@ impl Vault {
             let query = Dict::from_CFType_pairs(&query);
             let mut result = ptr::null();
             match SecItemCopyMatching(query.as_concrete_TypeRef(), &mut result) {
-                ITEM_NOT_FOUND => Ok(None),
+                ITEM_NOT_FOUND => Ok(0),
                 0 if !result.is_null() => {
                     let data = CFType::wrap_under_create_rule(result)
                         .downcast::<CFData>()
                         .ok_or(Failure::Settings)?;
                     let bytes = data.bytes().try_into().map_err(|_| Failure::Settings)?;
-                    Ok(Some(u64::from_be_bytes(bytes)))
+                    Ok(u64::from_be_bytes(bytes))
                 }
                 _ => Err(Failure::Settings),
             }
@@ -735,7 +734,7 @@ mod tests {
             );
             assert_eq!(
                 string(value(&query, &symbol(kSecAttrService).to_string())).as_deref(),
-                Some("local.keychain-wallet.mnemonic.v1")
+                Some("local.keylet.mnemonic.v1")
             );
             assert_eq!(
                 string(value(&query, &symbol(kSecAttrAccessGroup).to_string())).as_deref(),

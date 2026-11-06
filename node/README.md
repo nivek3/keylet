@@ -42,7 +42,7 @@ App discovery always uses this Bundle ID; there is no path override. Unknown sel
 
 Calls reuse a macOS authentication context in a private helper belonging to the current Node process. The fixed window starts after successful authentication. Repeated calls do not extend it. Keys and failures are not cached. Each call reads Keychain again. Calls must originate from the main thread; different Node processes and App UI operations authenticate separately.
 
-In **… → Settings → Reuse Node auth**, enter a non-negative whole number of minutes and save it to Keychain. The editor suggests 5 minutes on a fresh install and prefills the previous value when upgrading from a file-based setting. Each call authenticates separately until you save a value. Save `0` to keep that behavior. The duration must fit in unsigned 64-bit seconds. Changes apply to the next Node request, including existing sessions. App recovery-phrase reveals and deletions always require fresh authentication.
+In **… → Settings → Reuse Node auth**, enter a non-negative whole number of minutes and save it to Keychain. The default is `0`, which requires authentication on every call. The duration must fit in unsigned 64-bit seconds. Changes apply to the next Node request, including existing sessions. App recovery-phrase reveals and deletions always require fresh authentication.
 
 `authTTL` optionally requests a shorter window in seconds (a non-negative JavaScript safe integer). Omit it to follow the app setting. `0` requires authentication on every call. The app setting is an upper bound: a caller cannot override it. Changing this parameter starts a fresh helper session.
 

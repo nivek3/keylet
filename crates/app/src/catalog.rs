@@ -36,7 +36,7 @@ impl Catalog {
         let home = std::env::var_os("HOME").ok_or(Failure::Catalog)?;
         Ok(Self {
             path: PathBuf::from(home)
-                .join("Library/Application Support/KeychainWallet")
+                .join("Library/Application Support/Keylet")
                 .join(group)
                 .join("wallets.json"),
         })
@@ -127,32 +127,6 @@ impl Catalog {
         }
         result
     }
-    // Prefill the settings editor during an upgrade. This file never authorizes reuse.
-    pub fn legacy_authentication_ttl(&self) -> Result<Option<u64>> {
-        let path = self.path.with_file_name("settings.json");
-        let file = match OpenOptions::new()
-            .read(true)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
-            .open(path)
-        {
-            Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(_) => return Err(Failure::Settings),
-        };
-        if !file.metadata().map_err(|_| Failure::Settings)?.is_file() {
-            return Err(Failure::Settings);
-        }
-        let mut bytes = Vec::new();
-        file.take(65)
-            .read_to_end(&mut bytes)
-            .map_err(|_| Failure::Settings)?;
-        if bytes.len() > 64 {
-            return Err(Failure::Settings);
-        }
-        serde_json::from_slice::<u64>(&bytes)
-            .map(Some)
-            .map_err(|_| Failure::Settings)
-    }
     pub fn upsert(&self, entry: WalletSummary) -> Result<()> {
         entry.validate()?;
         let _lock = self.lock()?;
@@ -202,31 +176,6 @@ mod tests {
     use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
-    #[test]
-    fn legacy_authentication_settings_prefill_and_reject_invalid_files() {
-        let catalog = fixture();
-        assert_eq!(catalog.legacy_authentication_ttl().unwrap(), None);
-        let path = catalog.path.with_file_name("settings.json");
-        fs::create_dir_all(catalog.path.parent().unwrap()).unwrap();
-        for seconds in [0, 60, 300, u64::MAX] {
-            fs::write(&path, seconds.to_string()).unwrap();
-            assert_eq!(catalog.legacy_authentication_ttl().unwrap(), Some(seconds));
-        }
-        for value in [
-            "-1".to_owned(),
-            "1.5".to_owned(),
-            "18446744073709551616".to_owned(),
-            "null".to_owned(),
-            "300".to_owned() + &" ".repeat(100),
-        ] {
-            fs::write(&path, value).unwrap();
-            assert!(catalog.legacy_authentication_ttl().is_err());
-        }
-        fs::remove_file(&path).unwrap();
-        std::os::unix::fs::symlink("missing-target", &path).unwrap();
-        assert!(catalog.legacy_authentication_ttl().is_err());
-        fs::remove_dir_all(catalog.path.parent().unwrap()).unwrap();
-    }
     #[test]
     fn sync_preserves_writes_made_during_authentication() {
         let catalog = fixture();

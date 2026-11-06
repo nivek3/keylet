@@ -116,7 +116,7 @@ const keys = await getKeyPair({
 **Keylet 保护密钥的存储，导出后的私钥由调用进程控制。** 删除钱包或锁屏都无法撤回或清除已导出的副本。不要记录或持久化私钥。
 
 - 使用 `WhenUnlockedThisDeviceOnly`、用户在场认证和私有 Keychain 访问组。本机展示清单仅缓存名称与公开地址。
-- Node 调用在当前进程内复用 macOS 认证上下文，不缓存密钥或失败结果。在 **… → Settings → Reuse Node auth** 中输入整数分钟并保存。App 将时长写入私有 Keychain 组，从认证成功起计时，连续调用不会续期。首次保存前（包括从旧版文件设置升级后），每次调用都要认证。保存为 `0` 时同样每次认证。单次调用的 `authTTL` 限制见 [API 文档](node/README_ZH.md)。
+- Node 调用在当前进程内复用 macOS 认证上下文，不缓存密钥或失败结果。在 **… → Settings → Reuse Node auth** 中输入整数分钟并保存。App 将时长写入私有 Keychain 组，从认证成功起计时，连续调用不会续期。默认值为 `0`，每次调用都要认证。单次调用的 `authTTL` 限制见 [API 文档](node/README_ZH.md)。
 - App 内显示助记词和删除钱包始终单独认证。助记词默认遮罩，显示 60 秒、失焦、离开页面或点击 Hide 后清除。
 - 显式复制的内容在应用运行期间 60 秒后、阻塞认证前或正常退出时清理，前提是剪贴板仍为本应用最后一次写入。无法撤回其他软件保留的副本。
 - SDK 需要已登录的 macOS 会话完成交互认证，不面向浏览器、Linux/Windows 服务或无人值守任务。

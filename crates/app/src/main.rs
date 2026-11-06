@@ -66,7 +66,7 @@ fn bridge(vault: &macos::Vault, requested_ttl: u64) -> Result<()> {
     while let Some(request) = read_request(&mut input, &mut session, Some(0))? {
         objc2::rc::autoreleasepool(|_| -> Result<()> {
             // Reuse requires a saved policy in the app's private Keychain group.
-            let ttl = requested_ttl.min(vault.authentication_ttl()?.unwrap_or(0));
+            let ttl = requested_ttl.min(vault.authentication_ttl()?);
             let reason = format!("provide a private key from wallet \"{}\" to your script\nCurve: {}\nPath: {}", request.name, request.curve.name(), request.path);
             let context = session.context(&reason, std::time::Duration::from_secs(ttl), std::time::Instant::now());
             let wallet = vault.read(&request.name, context);

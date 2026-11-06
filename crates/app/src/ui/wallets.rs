@@ -1,9 +1,5 @@
 use super::{revealed_card, Stage, WalletApp, MIN_RECOVERY_CARD_HEIGHT};
-use crate::{
-    catalog::Catalog,
-    model::{WalletSummary, DEFAULT_ETH_PATH, DEFAULT_SOL_PATH},
-    theme,
-};
+use crate::{model::{WalletSummary, DEFAULT_ETH_PATH, DEFAULT_SOL_PATH}, theme};
 use eframe::egui::{self, Align, Frame, Id, Layout, Margin};
 use std::time::Instant;
 
@@ -158,21 +154,13 @@ impl WalletApp {
                         if ui.button("Settings…").clicked() {
                             self.wipe_draft();
                             self.message.clear();
-                            let seconds = self.vault.authentication_ttl().and_then(|saved| {
-                                if let Some(seconds) = saved {
-                                    return Ok(seconds);
+                            self.authentication_minutes = match self.vault.authentication_ttl() {
+                                Ok(seconds) => (seconds / 60).to_string(),
+                                Err(_) => {
+                                    self.message = "Unable to read settings. Enter a duration to save.".into();
+                                    String::new()
                                 }
-                                let legacy = Catalog::for_group(&self.vault.group)?
-                                    .legacy_authentication_ttl()?;
-                                Ok(legacy.unwrap_or(300))
-                            });
-                            self.authentication_minutes = match seconds {
-                                    Ok(seconds) => (seconds / 60).to_string(),
-                                    Err(_) => {
-                                        self.message = "Unable to read settings. Enter a duration to save.".into();
-                                        String::new()
-                                    }
-                                };
+                            };
                             self.stage = Stage::Settings;
                             ui.close();
                         }

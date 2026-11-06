@@ -48,7 +48,7 @@ The Node SDK discovers the official Bundle ID `com.nivek3.keylet` through macOS 
 
 ## Renewal
 
-The default app name is `Keylet.app`, with executable `Contents/MacOS/keylet`; the official SDK lookup ID is `com.nivek3.keylet`. The Keychain service and `Library/Application Support/KeychainWallet` directory keep their existing storage identifiers to preserve local wallets and settings. Reuse the same signing identity, bundle ID, and authorized access group when rebuilding. Keep existing development apps with another ID separate: changing their ID to match the SDK target can lose access to their existing Keychain group.
+The default app name is `Keylet.app`, with executable `Contents/MacOS/keylet`. The official SDK lookup ID is `com.nivek3.keylet`. Keylet uses `local.keylet.mnemonic.v1` for wallets, `local.keylet.settings.v1` for settings, and `Library/Application Support/Keylet` for the wallet list. Reuse the same signing identity, bundle ID, and authorized access group when rebuilding. A different bundle ID can put the app in a different Keychain group.
 
 Renew Personal Team assets through Xcode, then rerun the script with the current profile and matching identity. Keep the bundle ID and authorized access group stable when retaining saved wallets. Profiles do not back up wallet data; keep an independent offline recovery backup.
 

@@ -175,11 +175,15 @@ pub fn secondary(ui: &mut Ui, label: &str) -> egui::Response {
         INK,
     )
 }
-pub fn wallet_choice(ui: &mut Ui, width: f32, creating: bool) -> egui::Response {
-    let (label, fill, ink) = if creating {
-        ("Create wallet", ACCENT, ACCENT_INK)
-    } else {
-        ("Import wallet", SELECTED, INK)
+pub(crate) enum WalletChoice {
+    Create,
+    Import,
+}
+
+pub(crate) fn wallet_choice(ui: &mut Ui, width: f32, choice: WalletChoice) -> egui::Response {
+    let (label, fill, ink) = match choice {
+        WalletChoice::Create => ("Create wallet", ACCENT, ACCENT_INK),
+        WalletChoice::Import => ("Import wallet", SELECTED, INK),
     };
     let icon = egui::Id::new(label);
     let card = ui
@@ -204,7 +208,7 @@ pub fn wallet_choice(ui: &mut Ui, width: f32, creating: bool) -> egui::Response 
         let point = |x, y| center + egui::vec2(x, y);
         let stroke = Stroke::new(1.5_f32, ink);
         painter.rect_filled(rect, 8, fill);
-        if creating {
+        if matches!(choice, WalletChoice::Create) {
             painter.line_segment([point(-5.0, 0.0), point(5.0, 0.0)], stroke);
             painter.line_segment([point(0.0, -5.0), point(0.0, 5.0)], stroke);
         } else {
@@ -520,8 +524,8 @@ mod tests {
                         let bounds = ui.max_rect();
                         let width = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).floor();
                         ui.horizontal(|ui| {
-                            for creating in [true, false] {
-                                let card = wallet_choice(ui, width, creating);
+                            for choice in [WalletChoice::Create, WalletChoice::Import] {
+                                let card = wallet_choice(ui, width, choice);
                                 assert!(bounds.contains_rect(card.rect));
                                 assert!((card.rect.width() - width).abs() < 0.5);
                             }

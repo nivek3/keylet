@@ -154,14 +154,19 @@ impl AuthenticationSession {
         self.authenticated_wall = None;
     }
     pub fn expire(&mut self, now: Instant) {
-        if self.authenticated_at.is_some_and(|start| now.duration_since(start) >= self.ttl)
-            || self.authenticated_wall.is_some_and(|start| start.elapsed().map_or(true, |age| age >= self.ttl))
+        if self
+            .authenticated_at
+            .is_some_and(|start| now.duration_since(start) >= self.ttl)
+            || self
+                .authenticated_wall
+                .is_some_and(|start| start.elapsed().map_or(true, |age| age >= self.ttl))
         {
             self.clear();
         }
     }
     pub fn remaining(&self, now: Instant) -> Option<Duration> {
-        self.authenticated_at.map(|start| self.ttl.saturating_sub(now.duration_since(start)))
+        self.authenticated_at
+            .map(|start| self.ttl.saturating_sub(now.duration_since(start)))
     }
     pub fn context(&mut self, reason: &str, ttl: Duration, now: Instant) -> &AuthContext {
         self.expire(now);
@@ -169,12 +174,14 @@ impl AuthenticationSession {
             self.clear();
             self.ttl = ttl;
         }
-        self.context.get_or_insert_with(|| AuthContext::new(reason, false))
+        self.context
+            .get_or_insert_with(|| AuthContext::new(reason, false))
     }
     pub fn complete(&mut self, success: bool, now: Instant) {
         if success && !self.ttl.is_zero() {
             self.authenticated_at.get_or_insert(now);
-            self.authenticated_wall.get_or_insert_with(std::time::SystemTime::now);
+            self.authenticated_wall
+                .get_or_insert_with(std::time::SystemTime::now);
         } else {
             self.clear();
         }
@@ -245,10 +252,7 @@ impl Vault {
                     symbol(kSecAttrAccessGroup),
                     CFString::new(&self.group).as_CFType(),
                 ),
-                (
-                    symbol(kSecAttrService),
-                    CFString::new(service).as_CFType(),
-                ),
+                (symbol(kSecAttrService), CFString::new(service).as_CFType()),
                 (
                     symbol(kSecAttrSynchronizable),
                     CFBoolean::false_value().as_CFType(),
@@ -265,7 +269,10 @@ impl Vault {
         unsafe {
             let mut query = self.item_query(SETTINGS_SERVICE, Some(NODE_TTL_ACCOUNT));
             query.push((symbol(kSecReturnData), CFBoolean::true_value().as_CFType()));
-            query.push((symbol(kSecMatchLimit), symbol(kSecMatchLimitOne).as_CFType()));
+            query.push((
+                symbol(kSecMatchLimit),
+                symbol(kSecMatchLimitOne).as_CFType(),
+            ));
             let query = Dict::from_CFType_pairs(&query);
             let mut result = ptr::null();
             match SecItemCopyMatching(query.as_concrete_TypeRef(), &mut result) {
@@ -290,7 +297,10 @@ impl Vault {
             let data_pair = (symbol(kSecValueData), data.as_CFType());
             let attrs = Dict::from_CFType_pairs(std::slice::from_ref(&data_pair));
             let update = || {
-                SecItemUpdate(match_query.as_concrete_TypeRef(), attrs.as_concrete_TypeRef())
+                SecItemUpdate(
+                    match_query.as_concrete_TypeRef(),
+                    attrs.as_concrete_TypeRef(),
+                )
             };
             let result = match update() {
                 ITEM_NOT_FOUND => {
@@ -454,7 +464,9 @@ impl Vault {
 
 pub fn configure_window_background([red, green, blue]: [u8; 3]) -> Result<()> {
     let mtm = MainThreadMarker::new().ok_or(Failure::Configuration)?;
-    let window = NSApplication::sharedApplication(mtm).windows().firstObject()
+    let window = NSApplication::sharedApplication(mtm)
+        .windows()
+        .firstObject()
         .ok_or(Failure::Configuration)?;
     let background = NSColor::colorWithSRGBRed_green_blue_alpha(
         f64::from(red) / 255.0,
@@ -562,7 +574,8 @@ impl Clipboard {
         }
     }
     pub fn has_copy(&self) -> bool {
-        self.expiry.is_some_and(|(_, count)| self.board.changeCount() == count)
+        self.expiry
+            .is_some_and(|(_, count)| self.board.changeCount() == count)
     }
     pub fn clear(&mut self) {
         if let Some((_, count)) = self.expiry.take() {
@@ -622,9 +635,16 @@ mod tests {
         session.context("Public fixture", Duration::from_secs(300), now);
         assert!(session.authenticated_at.is_none());
         session.complete(true, now);
-        session.context("Public fixture", Duration::from_secs(300), now + Duration::from_secs(299));
+        session.context(
+            "Public fixture",
+            Duration::from_secs(300),
+            now + Duration::from_secs(299),
+        );
         session.complete(true, now + Duration::from_secs(299));
-        assert_eq!(session.remaining(now + Duration::from_secs(299)), Some(Duration::from_secs(1)));
+        assert_eq!(
+            session.remaining(now + Duration::from_secs(299)),
+            Some(Duration::from_secs(1))
+        );
         session.expire(now + Duration::from_secs(300));
         assert!(session.context.is_none());
         session.context("Public fixture", Duration::ZERO, now);
@@ -712,7 +732,10 @@ mod tests {
         );
         assert!(!clipboard.has_copy());
         clipboard.clear();
-        assert_eq!(clipboard.paste_confirmation().unwrap().as_str(), "new unrelated content");
+        assert_eq!(
+            clipboard.paste_confirmation().unwrap().as_str(),
+            "new unrelated content"
+        );
         unsafe {
             let _: () = objc2::msg_send![&*board, releaseGlobally];
         }

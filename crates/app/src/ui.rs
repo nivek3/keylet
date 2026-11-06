@@ -2,7 +2,7 @@ mod accounts;
 mod wallets;
 
 use crate::catalog::Catalog;
-use crate::theme;
+use crate::theme::{self, WalletChoice};
 use crate::{
     macos::{self, Clipboard, ClipboardGate, SecureInput, Vault},
     model::*,
@@ -622,15 +622,15 @@ impl WalletApp {
                 let mut choice = None;
                 let card_width = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).floor();
                 ui.horizontal(|ui| {
-                    if theme::wallet_choice(ui, card_width, true).clicked() {
-                        choice = Some(true);
+                    if theme::wallet_choice(ui, card_width, WalletChoice::Create).clicked() {
+                        choice = Some(WalletChoice::Create);
                     }
-                    if theme::wallet_choice(ui, card_width, false).clicked() {
-                        choice = Some(false);
+                    if theme::wallet_choice(ui, card_width, WalletChoice::Import).clicked() {
+                        choice = Some(WalletChoice::Import);
                     }
                 });
-                if let Some(creating) = choice {
-                    self.creating = creating;
+                if let Some(choice) = choice {
+                    self.creating = matches!(choice, WalletChoice::Create);
                     self.no_passphrase = false;
                     self.name.clear();
                     self.expected.clear();
@@ -640,26 +640,14 @@ impl WalletApp {
                     self.stage = Stage::Details;
                 }
             }
-            Stage::Wallets => {
-                if !self.message.is_empty() {
-                    ui.colored_label(theme::DANGER_INK, &self.message);
-                    ui.add_space(8.0);
-                }
-                self.wallet_detail(ui);
-            }
+            Stage::Wallets => self.wallet_detail(ui),
             Stage::Settings => {
-                ui.horizontal(|ui| {
-                    let label = theme::label(ui, "Reuse Node auth");
-                    let minutes = ui.add(
-                        TextEdit::singleline(&mut self.authentication_minutes)
-                            .desired_width(48.0)
-                            .margin(egui::Margin::symmetric(8, 6))
-                            .char_limit(20),
-                    );
-                    let unit = ui.label("min");
-                    theme::focus_ring(ui, minutes.rect, minutes.has_focus());
-                    minutes.labelled_by(label.id).labelled_by(unit.id);
-                });
+                theme::public_field(
+                    ui,
+                    "Reuse Node auth (minutes)",
+                    &mut self.authentication_minutes,
+                    20,
+                );
                 theme::hint(ui, "0 prompts every time.");
                 ui.add_space(12.0);
                 if theme::primary(ui, "Save").clicked() {
@@ -997,6 +985,10 @@ impl WalletApp {
     }
 
     fn page_content(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, focused: bool) {
+        if self.stage == Stage::Wallets && !self.message.is_empty() {
+            ui.colored_label(theme::DANGER_INK, &self.message);
+            ui.add_space(8.0);
+        }
         page_scroll(self.stage)
             .show(ui, |ui| {
                 let max_width = if self.stage == Stage::ViewPhrase { 440.0 } else { 420.0 };

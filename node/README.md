@@ -1,6 +1,6 @@
 # Keylet Node.js SDK
 
-**English** | [中文](README_ZH.md) · [Keylet overview](../README.md) · [Build and signing](../docs/signing.md)
+**English** | [中文](https://github.com/nivek3/keylet/blob/main/node/README_ZH.md) · [Keylet overview](https://github.com/nivek3/keylet#readme) · [Build and signing](https://github.com/nivek3/keylet/blob/main/docs/signing.md)
 
 `keylet` lets Node.js scripts request a derived key pair from the signed macOS app `Keylet.app`. The app authenticates with Touch ID or your Mac password before accessing the recovery phrase in Keychain. Supports secp256k1 and SLIP-0010 Ed25519.
 
@@ -8,7 +8,7 @@ Requires macOS 14+, Node.js 22+, and a separately built, correctly signed app. R
 
 ## Install
 
-**Not released yet.** After publication, install the SDK in your Node project with:
+Install the SDK in your Node project with:
 
 ```sh
 npm install keylet
@@ -16,7 +16,7 @@ npm install keylet
 
 The published package includes JavaScript, type declarations, and a precompiled native module; users do not need to build the SDK. For current source development, see [Development and publishing](#development-and-publishing).
 
-The `keylet` package does not include the macOS app. Install and open the complete signed app with Bundle ID `com.nivek3.keylet` so macOS registers its location. To build the app from source, follow the [build and signing instructions](../README.md#try-it-from-source); the signing profile must authorize this ID.
+The `keylet` package does not include the macOS app. Install and open the complete signed app with Bundle ID `com.nivek3.keylet` so macOS registers its location. To build the app from source, follow the [build and signing instructions](https://github.com/nivek3/keylet/blob/main/README.md#try-it-from-source); the signing profile must authorize this ID.
 
 ## Usage
 
@@ -112,7 +112,7 @@ Install the generated `keylet-0.1.0.tgz` in a separate project and verify loadin
 
 ### Manual GitHub Actions release
 
-Use [`.github/workflows/release-node.yml`](../.github/workflows/release-node.yml), **Actions → Release Node.js → Run workflow**:
+Use [`.github/workflows/release-node.yml`](https://github.com/nivek3/keylet/blob/main/.github/workflows/release-node.yml), **Actions → Release Node.js → Run workflow**:
 
 1. Commit the release changes and push an existing `vMAJOR.MINOR.PATCH` tag matching `node/package.json`. The workflow must be on the default branch to appear in Actions.
 2. Enter that tag. Leave `draft` enabled to build and download the `.tgz` without publishing. This mode does not need npm or Apple credentials and does not create a GitHub Release.

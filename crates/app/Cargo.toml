@@ -4,7 +4,9 @@ version.workspace = true
 edition.workspace = true
 publish.workspace = true
 license.workspace = true
-description.workspace = true
+description = "Keylet is a app for managing keys and wallets in Rust."
+keywords = ["keylet", "wallet", "crypto", "node", "app"]
+categories = ["asynchronous"]
 
 [[bin]]
 name = "keylet"

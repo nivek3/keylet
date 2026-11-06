@@ -1,6 +1,6 @@
 # Keylet Node.js SDK
 
-[English](README.md) | **中文** · [Keylet 项目说明](../README_ZH.md) · [构建与签名](../docs/signing.md)
+[English](https://github.com/nivek3/keylet/blob/main/node/README.md) | **中文** · [Keylet 项目说明](https://github.com/nivek3/keylet/blob/main/README_ZH.md) · [构建与签名](https://github.com/nivek3/keylet/blob/main/docs/signing.md)
 
 `keylet` 让 Node.js 脚本通过已签名的 macOS App `Keylet.app` 获取派生公私钥。App 通过 Touch ID 或 Mac 登录密码认证后，才会读取 Keychain 中的助记词。支持 secp256k1 和 SLIP-0010 Ed25519。
 
@@ -8,7 +8,7 @@
 
 ## 安装
 
-**当前尚未发布。** 正式发布后，在业务项目中运行：
+在业务项目中运行：
 
 ```sh
 npm install keylet
@@ -16,7 +16,7 @@ npm install keylet
 
 发布包已包含 JavaScript、类型声明和预编译的原生模块，使用者无需自行编译 SDK。当前从源码开发的步骤见[开发与发布](#开发与发布)。
 
-`keylet` 包不包含 macOS App；请单独安装并打开 Bundle ID 为 `com.nivek3.keylet` 的完整已签名 App，让 macOS 登记其位置。自行构建 App 时，按[构建与签名说明](../README_ZH.md#从源码开始)准备，签名 profile 必须授权此 ID。
+`keylet` 包不包含 macOS App；请单独安装并打开 Bundle ID 为 `com.nivek3.keylet` 的完整已签名 App，让 macOS 登记其位置。自行构建 App 时，按[构建与签名说明](https://github.com/nivek3/keylet/blob/main/README_ZH.md#从源码开始)准备，签名 profile 必须授权此 ID。
 
 ## 使用方式
 
@@ -112,7 +112,7 @@ npm pack
 
 ### GitHub Actions 手动发布
 
-使用 [`.github/workflows/release-node.yml`](../.github/workflows/release-node.yml)，入口为 **Actions → Release Node.js → Run workflow**：
+使用 [`.github/workflows/release-node.yml`](https://github.com/nivek3/keylet/blob/main/.github/workflows/release-node.yml)，入口为 **Actions → Release Node.js → Run workflow**：
 
 1. 提交发布改动并推送与 `node/package.json` 版本一致的 `vMAJOR.MINOR.PATCH` tag。工作流需先进入默认分支，才会出现在 Actions 中。
 2. 填入已有 tag。保留 `draft` 勾选时只构建并提供 `.tgz` 下载，不发布 npm，也不创建 GitHub Release；此模式不需要 npm 或 Apple 凭据。

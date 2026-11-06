@@ -27,6 +27,11 @@ use std::{
 use zeroize::Zeroizing;
 
 type Dict = CFDictionary<CFString, CFType>;
+const WALLET_SERVICE: &str = "local.keychain-wallet.mnemonic.v1";
+const SETTINGS_SERVICE: &str = "local.keychain-wallet.settings.v1";
+const NODE_TTL_ACCOUNT: &str = "node-authentication-ttl";
+const ITEM_NOT_FOUND: i32 = -25300;
+const DUPLICATE_ITEM: i32 = -25299;
 #[link(name = "Security", kind = "framework")]
 extern "C" {
     fn SecCodeCopyStaticCode(code: SecCodeRef, flags: u32, output: *mut SecStaticCodeRef) -> i32;
@@ -37,6 +42,7 @@ extern "C" {
     ) -> i32;
     static kSecCodeInfoEntitlementsDict: CFStringRef;
     static kSecCodeInfoFlags: CFStringRef;
+    static kSecAttrAccessible: CFStringRef;
     static kSecMatchLimitOne: CFStringRef;
 }
 #[link(name = "Carbon", kind = "framework")]
@@ -49,8 +55,8 @@ fn status(code: i32) -> Result<()> {
         0 => Ok(()),
         -128 => Err(Failure::Cancelled),
         -25293 | -25308 => Err(Failure::Authentication),
-        -25300 => Err(Failure::Missing),
-        -25299 => Err(Failure::Duplicate),
+        ITEM_NOT_FOUND => Err(Failure::Missing),
+        DUPLICATE_ITEM => Err(Failure::Duplicate),
         -34018 => Err(Failure::Configuration),
         _ => Err(Failure::Keychain),
     }
@@ -59,7 +65,7 @@ unsafe fn symbol(key: CFStringRef) -> CFString {
     CFString::wrap_under_get_rule(key)
 }
 fn value(dict: &Dict, key: &str) -> Option<CFType> {
-    dict.find(&CFString::new(key)).map(|v| (*v).clone())
+    dict.find(CFString::new(key)).map(|v| (*v).clone())
 }
 fn dictionary(value: CFType) -> Result<Dict> {
     let untyped = value
@@ -222,6 +228,10 @@ impl Vault {
         Ok(Self { group })
     }
     fn query(&self, name: Option<&str>) -> Vec<(CFString, CFType)> {
+        self.item_query(WALLET_SERVICE, name)
+    }
+    fn item_query(&self, service: &str, name: Option<&str>) -> Vec<(CFString, CFType)> {
+        // SAFETY: Security exports these CFString constants for the lifetime of the process.
         unsafe {
             let mut pairs = vec![
                 (
@@ -238,7 +248,7 @@ impl Vault {
                 ),
                 (
                     symbol(kSecAttrService),
-                    CFString::new("local.keychain-wallet.mnemonic.v1").as_CFType(),
+                    CFString::new(service).as_CFType(),
                 ),
                 (
                     symbol(kSecAttrSynchronizable),
@@ -249,6 +259,56 @@ impl Vault {
                 pairs.push((symbol(kSecAttrAccount), CFString::new(name).as_CFType()));
             }
             pairs
+        }
+    }
+    pub fn authentication_ttl(&self) -> Result<Option<u64>> {
+        // SAFETY: The query owns its attributes. A successful lookup returns a retained object.
+        unsafe {
+            let mut query = self.item_query(SETTINGS_SERVICE, Some(NODE_TTL_ACCOUNT));
+            query.push((symbol(kSecReturnData), CFBoolean::true_value().as_CFType()));
+            query.push((symbol(kSecMatchLimit), symbol(kSecMatchLimitOne).as_CFType()));
+            let query = Dict::from_CFType_pairs(&query);
+            let mut result = ptr::null();
+            match SecItemCopyMatching(query.as_concrete_TypeRef(), &mut result) {
+                ITEM_NOT_FOUND => Ok(None),
+                0 if !result.is_null() => {
+                    let data = CFType::wrap_under_create_rule(result)
+                        .downcast::<CFData>()
+                        .ok_or(Failure::Settings)?;
+                    let bytes = data.bytes().try_into().map_err(|_| Failure::Settings)?;
+                    Ok(Some(u64::from_be_bytes(bytes)))
+                }
+                _ => Err(Failure::Settings),
+            }
+        }
+    }
+    pub fn set_authentication_ttl(&self, seconds: u64) -> Result<()> {
+        let mut query = self.item_query(SETTINGS_SERVICE, Some(NODE_TTL_ACCOUNT));
+        let match_query = Dict::from_CFType_pairs(&query);
+        let data = CFData::from_buffer(&seconds.to_be_bytes());
+        // SAFETY: The dictionaries retain their values for the duration of each Security call.
+        unsafe {
+            let data_pair = (symbol(kSecValueData), data.as_CFType());
+            let attrs = Dict::from_CFType_pairs(std::slice::from_ref(&data_pair));
+            let update = || {
+                SecItemUpdate(match_query.as_concrete_TypeRef(), attrs.as_concrete_TypeRef())
+            };
+            let result = match update() {
+                ITEM_NOT_FOUND => {
+                    query.push(data_pair);
+                    query.push((
+                        symbol(kSecAttrAccessible),
+                        symbol(kSecAttrAccessibleWhenUnlockedThisDeviceOnly).as_CFType(),
+                    ));
+                    let insert = Dict::from_CFType_pairs(&query);
+                    match SecItemAdd(insert.as_concrete_TypeRef(), ptr::null_mut()) {
+                        DUPLICATE_ITEM => update(),
+                        status => status,
+                    }
+                }
+                status => status,
+            };
+            status(result).map_err(|_| Failure::Settings)
         }
     }
     pub fn insert(&self, name: &str, wallet: &StoredWallet) -> Result<()> {
@@ -341,7 +401,7 @@ impl Vault {
             let q = self.names_query(context);
             let mut output = ptr::null();
             let code = SecItemCopyMatching(q.as_concrete_TypeRef(), &mut output);
-            if code == -25300 {
+            if code == ITEM_NOT_FOUND {
                 return Ok(Vec::new());
             }
             status(code)?;

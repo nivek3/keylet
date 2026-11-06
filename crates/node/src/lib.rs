@@ -11,6 +11,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use wallet_crypto::{valid_wallet_name, Curve};
 use zeroize::Zeroizing;
 
 mod discovery;
@@ -20,21 +21,6 @@ mod node;
 type BridgeResult<T> = Result<T, &'static str>;
 const INVALID: &str = "Invalid wallet selection";
 const BAD_RESPONSE: &str = "INVALID_HELPER_RESPONSE";
-
-#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
-enum Curve {
-    Secp256k1,
-    Ed25519,
-}
-
-impl Curve {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Secp256k1 => "secp256k1",
-            Self::Ed25519 => "ed25519",
-        }
-    }
-}
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct Selection {
@@ -68,13 +54,7 @@ fn validate(input: &Value) -> BridgeResult<(String, Curve, String, u64)> {
         Some("ed25519") => Curve::Ed25519,
         _ => return Err(INVALID),
     };
-    if name.is_empty()
-        || name.len() > 64
-        || !name.as_bytes()[0].is_ascii_alphanumeric()
-        || !name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-    {
+    if !valid_wallet_name(name) {
         return Err(INVALID);
     }
     let index = match input.get("index") {
@@ -98,29 +78,7 @@ fn validate(input: &Value) -> BridgeResult<(String, Curve, String, u64)> {
         None if curve == Curve::Secp256k1 => format!("m/44'/60'/0'/0/{index}"),
         None => return Err(INVALID),
     };
-    if path.len() > 128 || (curve == Curve::Ed25519 && input.get("index").is_some()) {
-        return Err(INVALID);
-    }
-    let parts: Vec<_> = path.split('/').collect();
-    let number = |text: &str| {
-        !text.is_empty()
-            && text.bytes().all(|b| b.is_ascii_digit())
-            && text.parse::<u32>().is_ok_and(|v| v < 0x80000000)
-    };
-    let valid = if curve == Curve::Ed25519 {
-        parts.len() >= 2
-            && parts[0] == "m"
-            && parts[1..]
-                .iter()
-                .all(|p| p.strip_suffix('\'').is_some_and(number))
-    } else {
-        parts.len() == 6
-            && parts[..3] == ["m", "44'", "60'"]
-            && parts[3].strip_suffix('\'').is_some_and(number)
-            && matches!(parts[4], "0" | "1")
-            && number(parts[5])
-    };
-    if !valid {
+    if !curve.valid_wallet_path(&path) {
         return Err(INVALID);
     }
     let authentication_ttl = match input.get("authTTL") {
@@ -258,7 +216,7 @@ impl AppSession {
         })
     }
     fn read_key(&mut self, selection: &Selection, timeout: Duration) -> BridgeResult<KeyPair> {
-        let request = json!({"name": selection.name, "curve": selection.curve.as_str(), "path": selection.path});
+        let request = json!({"name": selection.name, "curve": selection.curve.name(), "path": selection.path});
         writeln!(self.stdin, "{request}").map_err(|_| "TRANSPORT_ERROR")?;
         let mut key = Zeroizing::new(Vec::with_capacity(32));
         let (mut out, mut err) = (Vec::new(), Vec::new());
@@ -328,7 +286,7 @@ fn parse_response(
 ) -> BridgeResult<KeyPair> {
     let response: Value = serde_json::from_slice(out).map_err(|_| BAD_RESPONSE)?;
     if response.get("name").and_then(Value::as_str) != Some(&selection.name)
-        || response.get("curve").and_then(Value::as_str) != Some(selection.curve.as_str())
+        || response.get("curve").and_then(Value::as_str) != Some(selection.curve.name())
         || response.get("path").and_then(Value::as_str) != Some(&selection.path)
         || !err.iter().all(u8::is_ascii_whitespace)
     {

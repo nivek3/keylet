@@ -60,14 +60,13 @@ fn bridge(vault: &macos::Vault, requested_ttl: u64) -> Result<()> {
         return Err(Failure::Transport);
     }
     macos::initialize_accessory()?;
-    let catalog = catalog::Catalog::for_group(&vault.group)?;
     let mut session = macos::AuthenticationSession::default();
     let mut input = unsafe { std::fs::File::from_raw_fd(0) };
     let mut secret_pipe = unsafe { std::fs::File::from_raw_fd(3) };
     while let Some(request) = read_request(&mut input, &mut session, Some(0))? {
         objc2::rc::autoreleasepool(|_| -> Result<()> {
-            // Read the cap on every request, so saving zero takes effect immediately.
-            let ttl = requested_ttl.min(catalog.authentication_ttl()?);
+            // Reuse requires a saved policy in the app's private Keychain group.
+            let ttl = requested_ttl.min(vault.authentication_ttl()?.unwrap_or(0));
             let reason = format!("provide a private key from wallet \"{}\" to your script\nCurve: {}\nPath: {}", request.name, request.curve.name(), request.path);
             let context = session.context(&reason, std::time::Duration::from_secs(ttl), std::time::Instant::now());
             let wallet = vault.read(&request.name, context);
@@ -161,8 +160,8 @@ mod tests {
         assert!(read_request(&mut input, &mut session, None).unwrap().is_none());
         assert!(read_request(&mut request[..request.len()-1].as_ref(), &mut session, None).is_err());
         assert!(read_request(&mut vec![b' '; 2049].as_slice(), &mut session, None).is_err());
-        for invalid in [b"{}\n".as_slice(), b"{\"name\":\"test\",\"curve\":\"ed25519\",\"path\":\"m/0'/1\"}\n"] {
-            assert!(read_request(&mut invalid.as_ref(), &mut session, None).is_err());
+        for mut invalid in [b"{}\n".as_slice(), b"{\"name\":\"test\",\"curve\":\"ed25519\",\"path\":\"m/0'/1\"}\n"] {
+            assert!(read_request(&mut invalid, &mut session, None).is_err());
         }
     }
     #[test]

@@ -105,9 +105,9 @@ impl WalletApp {
         }
         self.account_view.select_wallet(&entry.name);
         theme::page_header(ui, &entry.name, None);
-        theme::account_row(ui, "Ethereum", entry.ethereum_address.as_deref());
+        theme::account_row(ui, "Ethereum · cached", entry.ethereum_address.as_deref());
         ui.separator();
-        theme::account_row(ui, "Solana", entry.solana_address.as_deref());
+        theme::account_row(ui, "Solana · cached", entry.solana_address.as_deref());
         ui.separator();
         ui.add_space(8.0);
         ui.collapsing("Default derivation paths", |ui| {
@@ -158,8 +158,15 @@ impl WalletApp {
                         if ui.button("Settings…").clicked() {
                             self.wipe_draft();
                             self.message.clear();
-                            self.authentication_minutes = match Catalog::for_group(&self.vault.group)
-                                .and_then(|catalog| catalog.authentication_ttl()) {
+                            let seconds = self.vault.authentication_ttl().and_then(|saved| {
+                                if let Some(seconds) = saved {
+                                    return Ok(seconds);
+                                }
+                                let legacy = Catalog::for_group(&self.vault.group)?
+                                    .legacy_authentication_ttl()?;
+                                Ok(legacy.unwrap_or(300))
+                            });
+                            self.authentication_minutes = match seconds {
                                     Ok(seconds) => (seconds / 60).to_string(),
                                     Err(_) => {
                                         self.message = "Unable to read settings. Enter a duration to save.".into();
@@ -348,7 +355,7 @@ mod tests {
                         search_rect = if expanded {
                             ui.scope(|ui| wallet_search(ui, &mut search)).response.rect
                         } else {
-                            ui.vertical_centered(|ui| theme::search_button(ui)).response.rect
+                            ui.vertical_centered(theme::search_button).response.rect
                         };
                         ui.add_space(8.0);
                         for name in ["First wallet", "Second wallet", "Third wallet"] {

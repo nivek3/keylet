@@ -4,7 +4,7 @@ use std::{
     io::{Read, Write},
     os::{
         fd::AsRawFd,
-        unix::fs::{DirBuilderExt, OpenOptionsExt},
+        unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt},
     },
     path::PathBuf,
     time::{SystemTime, UNIX_EPOCH},
@@ -14,6 +14,15 @@ use std::{
 pub struct Catalog {
     path: PathBuf,
 }
+
+#[derive(PartialEq, Eq)]
+struct CatalogRevision {
+    device: u64,
+    inode: u64,
+    changed_at: i64,
+    changed_nanos: i64,
+}
+
 impl Catalog {
     pub fn for_group(group: &str) -> Result<Self> {
         if group.is_empty()
@@ -109,7 +118,7 @@ impl Catalog {
             .open(&temp)
             .map_err(|_| Failure::Catalog)?;
         let result = (|| {
-            file.write_all(&bytes).map_err(|_| Failure::Catalog)?;
+            file.write_all(bytes).map_err(|_| Failure::Catalog)?;
             file.sync_all().map_err(|_| Failure::Catalog)?;
             fs::rename(&temp, &self.path).map_err(|_| Failure::Catalog)
         })();
@@ -118,22 +127,31 @@ impl Catalog {
         }
         result
     }
-    pub fn authentication_ttl(&self) -> Result<u64> {
+    // Prefill the settings editor during an upgrade. This file never authorizes reuse.
+    pub fn legacy_authentication_ttl(&self) -> Result<Option<u64>> {
         let path = self.path.with_file_name("settings.json");
-        let file = match OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(path) {
+        let file = match OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+        {
             Ok(file) => file,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(300),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(_) => return Err(Failure::Settings),
         };
+        if !file.metadata().map_err(|_| Failure::Settings)?.is_file() {
+            return Err(Failure::Settings);
+        }
         let mut bytes = Vec::new();
-        file.take(65).read_to_end(&mut bytes).map_err(|_| Failure::Settings)?;
-        if bytes.len() > 64 { return Err(Failure::Settings); }
-        serde_json::from_slice::<u64>(&bytes).map_err(|_| Failure::Settings)
-    }
-    pub fn set_authentication_ttl(&self, seconds: u64) -> Result<()> {
-        let _lock = self.lock()?;
-        Self { path: self.path.with_file_name("settings.json") }
-            .write_bytes(seconds.to_string().as_bytes()).map_err(|_| Failure::Settings)
+        file.take(65)
+            .read_to_end(&mut bytes)
+            .map_err(|_| Failure::Settings)?;
+        if bytes.len() > 64 {
+            return Err(Failure::Settings);
+        }
+        serde_json::from_slice::<u64>(&bytes)
+            .map(Some)
+            .map_err(|_| Failure::Settings)
     }
     pub fn upsert(&self, entry: WalletSummary) -> Result<()> {
         entry.validate()?;
@@ -154,8 +172,27 @@ impl Catalog {
         &self,
         authenticated_entries: impl FnOnce() -> Result<Vec<WalletSummary>>,
     ) -> Result<Vec<WalletSummary>> {
+        let revision = self.revision()?;
+        let entries = authenticated_entries()?;
         let _lock = self.lock()?;
-        self.write(authenticated_entries()?)
+        if self.revision()? != revision {
+            return Err(Failure::CatalogChanged);
+        }
+        self.write(entries)
+    }
+
+    fn revision(&self) -> Result<Option<CatalogRevision>> {
+        let metadata = match fs::symlink_metadata(&self.path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(Failure::Catalog),
+        };
+        Ok(Some(CatalogRevision {
+            device: metadata.dev(),
+            inode: metadata.ino(),
+            changed_at: metadata.ctime(),
+            changed_nanos: metadata.ctime_nsec(),
+        }))
     }
 }
 
@@ -166,24 +203,47 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
     #[test]
-    fn authentication_settings_default_persist_and_reject_invalid_files() {
+    fn legacy_authentication_settings_prefill_and_reject_invalid_files() {
         let catalog = fixture();
-        assert_eq!(catalog.authentication_ttl().unwrap(), 300);
-        catalog.set_authentication_ttl(0).unwrap();
-        assert_eq!(catalog.authentication_ttl().unwrap(), 0);
-        for seconds in [60, 300, 3600, 86400, u64::MAX] {
-            catalog.set_authentication_ttl(seconds).unwrap();
-            assert_eq!(catalog.authentication_ttl().unwrap(), seconds);
-        }
+        assert_eq!(catalog.legacy_authentication_ttl().unwrap(), None);
         let path = catalog.path.with_file_name("settings.json");
-        assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
-        for value in ["-1".to_owned(), "1.5".to_owned(), "18446744073709551616".to_owned(), "null".to_owned(), "300".to_owned() + &" ".repeat(100)] {
+        fs::create_dir_all(catalog.path.parent().unwrap()).unwrap();
+        for seconds in [0, 60, 300, u64::MAX] {
+            fs::write(&path, seconds.to_string()).unwrap();
+            assert_eq!(catalog.legacy_authentication_ttl().unwrap(), Some(seconds));
+        }
+        for value in [
+            "-1".to_owned(),
+            "1.5".to_owned(),
+            "18446744073709551616".to_owned(),
+            "null".to_owned(),
+            "300".to_owned() + &" ".repeat(100),
+        ] {
             fs::write(&path, value).unwrap();
-            assert!(catalog.authentication_ttl().is_err());
+            assert!(catalog.legacy_authentication_ttl().is_err());
         }
         fs::remove_file(&path).unwrap();
         std::os::unix::fs::symlink("missing-target", &path).unwrap();
-        assert!(catalog.authentication_ttl().is_err());
+        assert!(catalog.legacy_authentication_ttl().is_err());
+        fs::remove_dir_all(catalog.path.parent().unwrap()).unwrap();
+    }
+    #[test]
+    fn sync_preserves_writes_made_during_authentication() {
+        let catalog = fixture();
+        let result = std::thread::scope(|scope| {
+            catalog.sync(|| {
+                let (send, receive) = std::sync::mpsc::channel();
+                let catalog = &catalog;
+                scope.spawn(move || {
+                    let _ = send.send(catalog.upsert(WalletSummary::named("new-wallet".into())));
+                });
+                receive.recv_timeout(std::time::Duration::from_secs(2))
+                    .expect("a catalog writer must finish while sync waits for authentication")?;
+                Ok(vec![WalletSummary::named("stale-snapshot".into())])
+            })
+        });
+        assert_eq!(result, Err(Failure::CatalogChanged));
+        assert_eq!(names(catalog.load().unwrap()), ["new-wallet"]);
         fs::remove_dir_all(catalog.path.parent().unwrap()).unwrap();
     }
     fn names(entries: Vec<WalletSummary>) -> Vec<String> {

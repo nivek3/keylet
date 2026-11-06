@@ -2,5 +2,8 @@
 members = ["crates/crypto", "crates/node", "crates/app"]
 resolver = "2"
 
+[workspace.dependencies]
+wallet-crypto = { path = "crates/crypto" }
+
 [profile.release]
 strip = "symbols"

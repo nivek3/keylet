@@ -1,4 +1,6 @@
 use serde::{Deserialize, Serialize};
+pub use wallet_crypto::Curve;
+use wallet_crypto::{DeriveError, PublicKey};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub type Result<T> = std::result::Result<T, Failure>;
@@ -18,6 +20,7 @@ pub enum Failure {
     Transport,
     Corrupt,
     Catalog,
+    CatalogChanged,
     Settings,
 }
 impl Failure {
@@ -37,6 +40,7 @@ impl Failure {
             Self::Transport => "TRANSPORT_ERROR",
             Self::Corrupt => "INVALID_ITEM",
             Self::Catalog => "NAME_LIST_ERROR",
+            Self::CatalogChanged => "NAME_LIST_CHANGED",
             Self::Settings => "SETTINGS_ERROR",
         }
     }
@@ -54,28 +58,6 @@ impl Failure {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Curve {
-    #[serde(rename = "secp256k1")]
-    Secp256k1,
-    #[serde(rename = "ed25519")]
-    Ed25519,
-}
-impl Curve {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Secp256k1 => "secp256k1",
-            Self::Ed25519 => "ed25519",
-        }
-    }
-    pub fn id(self) -> u32 {
-        match self {
-            Self::Secp256k1 => 0,
-            Self::Ed25519 => 1,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct KeyRequest {
     pub name: String,
@@ -85,29 +67,7 @@ pub struct KeyRequest {
 impl KeyRequest {
     pub fn validate(&self) -> Result<()> {
         validate_name(&self.name)?;
-        if self.path.len() > 128 {
-            return Err(Failure::Input);
-        }
-        let parts: Vec<_> = self.path.split('/').collect();
-        let number = |s: &str| {
-            !s.is_empty()
-                && s.bytes().all(|b| b.is_ascii_digit())
-                && s.parse::<u32>().is_ok_and(|n| n < 0x80000000)
-        };
-        let hardened = |s: &str| s.strip_suffix('\'').is_some_and(number);
-        let valid = match self.curve {
-            Curve::Secp256k1 => {
-                parts.len() == 6
-                    && parts[..3] == ["m", "44'", "60'"]
-                    && hardened(parts[3])
-                    && matches!(parts[4], "0" | "1")
-                    && number(parts[5])
-            }
-            Curve::Ed25519 => {
-                parts.len() >= 2 && parts[0] == "m" && parts[1..].iter().all(|s| hardened(s))
-            }
-        };
-        if valid {
+        if self.curve.valid_wallet_path(&self.path) {
             Ok(())
         } else {
             Err(Failure::Input)
@@ -130,13 +90,7 @@ impl KeyRequest {
     }
 }
 pub fn validate_name(name: &str) -> Result<()> {
-    if name.is_empty()
-        || name.len() > 64
-        || !name.as_bytes()[0].is_ascii_alphanumeric()
-        || !name
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
-    {
+    if !wallet_crypto::valid_wallet_name(name) {
         Err(Failure::Input)
     } else {
         Ok(())
@@ -218,13 +172,19 @@ impl WalletSummary {
             },
             None,
         )?;
-        let (_seed, sol) =
-            wallet_crypto::derive(&wallet.mnemonic, &wallet.passphrase, 1, DEFAULT_SOL_PATH)
-                .map_err(|_| Failure::Derivation)?;
+        let sol = derive(
+            wallet,
+            &KeyRequest {
+                name: name.into(),
+                curve: Curve::Ed25519,
+                path: DEFAULT_SOL_PATH.into(),
+            },
+            None,
+        )?;
         Ok(Self {
             name: name.into(),
             ethereum_address: Some(eth.identifier),
-            solana_address: Some(bs58::encode(sol).into_string()),
+            solana_address: Some(sol.address),
         })
     }
     pub fn validate(&self) -> Result<()> {
@@ -293,24 +253,19 @@ pub fn derive(
     let (key, public) = wallet_crypto::derive(
         &wallet.mnemonic,
         &wallet.passphrase,
-        request.curve.id(),
+        request.curve,
         &request.path,
     )
-    .map_err(|code| {
-        if code == 1 {
-            Failure::Mnemonic
-        } else {
-            Failure::Derivation
-        }
+    .map_err(|error| match error {
+        DeriveError::InvalidMnemonic => Failure::Mnemonic,
+        DeriveError::InvalidPath | DeriveError::DerivationFailed => Failure::Derivation,
     })?;
-    let public_key = if request.curve == Curve::Secp256k1 {
-        hex(&wallet_crypto::compressed_public_key(&public).map_err(|_| Failure::Derivation)?)
-    } else {
-        hex(&public)
-    };
-    let address = match request.curve {
-        Curve::Secp256k1 => hex(&wallet_crypto::ethereum_address(&public)),
-        Curve::Ed25519 => bs58::encode(&public).into_string(),
+    let (public_key, address) = match public {
+        PublicKey::Secp256k1(public) => (
+            hex(&public.compressed_bytes()),
+            hex(&public.ethereum_address()),
+        ),
+        PublicKey::Ed25519(public) => (hex(&public), bs58::encode(public).into_string()),
     };
     let identifier = if request.curve == Curve::Secp256k1 {
         address.clone()

@@ -12,6 +12,7 @@ bip32 = { version = "=0.6.0", default-features = false, features = [
 	"secp256k1",
 ] }
 derivation-path = "=0.2.0"
+serde = { version = "1", features = ["derive"] }
 solana-ed25519 = { version = "=0.2.4", default-features = false, features = [
 	"digest",
 	"precomputed-tables",

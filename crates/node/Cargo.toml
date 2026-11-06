@@ -9,6 +9,7 @@ license = "MIT"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+wallet-crypto = { workspace = true }
 core-foundation = "=0.10.1"
 napi = { version = "=3.15.0", default-features = false, features = [
 	"napi8",

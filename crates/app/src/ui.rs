@@ -492,6 +492,9 @@ impl WalletApp {
                 self.wallets = entries;
                 self.message.clear();
             }
+            Err(Failure::CatalogChanged) => {
+                self.message = "The wallet list changed during sync. Run Sync from Keychain again.".into();
+            }
             Err(error) => {
                 self.message = format!(
                     "Name synchronization stopped ({}). The previous list was kept.",
@@ -661,8 +664,7 @@ impl WalletApp {
                 ui.add_space(12.0);
                 if theme::primary(ui, "Save").clicked() {
                     match authentication_seconds(&self.authentication_minutes) {
-                        Ok(seconds) => match Catalog::for_group(&self.vault.group)
-                            .and_then(|catalog| catalog.set_authentication_ttl(seconds)) {
+                        Ok(seconds) => match self.vault.set_authentication_ttl(seconds) {
                                 Ok(()) => { self.message.clear(); self.back(); }
                                 Err(_) => self.message = "Unable to save settings.".into(),
                             },

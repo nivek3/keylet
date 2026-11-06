@@ -3526,6 +3526,7 @@ dependencies = [
  "serde_json",
  "solana-ed25519",
  "tokio",
+ "wallet-crypto",
  "zeroize",
 ]
 
@@ -3536,6 +3537,7 @@ dependencies = [
  "bip32",
  "bip39",
  "derivation-path",
+ "serde",
  "sha3",
  "solana-ed25519",
  "zeroize",

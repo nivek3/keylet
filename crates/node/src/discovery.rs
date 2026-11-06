@@ -22,7 +22,7 @@ fn bundle_executable(url: CFURL) -> BridgeResult<PathBuf> {
     let bundle = CFBundle::new(url).ok_or("Bundle not found")?;
     let identifier = unsafe { CFBundleGetIdentifier(bundle.as_concrete_TypeRef()) };
     if identifier.is_null()
-        || unsafe { CFString::wrap_under_get_rule(identifier) }.to_string() != BUNDLE_ID
+        || unsafe { CFString::wrap_under_get_rule(identifier) } != BUNDLE_ID
     {
         return Err("Bundle identifier mismatch");
     }

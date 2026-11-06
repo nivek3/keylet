@@ -32,7 +32,7 @@ https://github.com/user-attachments/assets/3554d122-92ed-412b-bce7-057f6dcdcdff
 
 - Creates and imports English BIP-39 recovery phrases with an optional passphrase.
 - Stores wallets behind macOS system authentication and a private Keychain access group.
-- Lists wallet names and default Ethereum / Solana addresses without unlocking secrets.
+- Lists wallet names and cached default Ethereum / Solana addresses without unlocking secrets. Use **Derived account** to verify an address.
 - Shows and copies Ethereum / Solana addresses by index or full derivation path after authentication, under **Derived account** in wallet details.
 - Reveals a recovery phrase or deletes a wallet after authentication and explicit user action.
 - Returns secp256k1 or SLIP-0010 Ed25519 key pairs through a small Node.js API.
@@ -116,7 +116,7 @@ Recovering an existing account requires the original derivation path and BIP-39 
 **Keylet protects keys at rest, not after export.** Once returned, private keys are controlled by the calling process. Deleting a wallet or locking the Mac cannot revoke or erase exported copies. Never log or persist private keys.
 
 - Keychain uses `WhenUnlockedThisDeviceOnly`, user-presence access control, and a private access group. The display cache holds only names and public addresses.
-- Node calls reuse a process-local macOS authentication context without caching keys or failures. The default is 5 minutes from successful authentication; repeated calls do not extend it. In **… → Settings → Node authentication**, save a duration in whole minutes; `0` requires authentication on every call, and there is no policy maximum. See the [API guide](node/README.md) for the per-call `authTTL` limit.
+- Node calls reuse a process-local macOS authentication context without caching keys or failures. Save a duration in whole minutes in **… → Settings → Reuse Node auth**. The window starts after successful authentication and repeated calls do not extend it. The app stores the duration in its private Keychain group. Before you save, including after upgrading from a file-based setting, each call authenticates separately. A duration of `0` also requires authentication on every call. See the [API guide](node/README.md) for the per-call `authTTL` limit.
 - App recovery-phrase reveals and deletions always authenticate separately. Recovery phrases are masked by default; reveals expire after 60 seconds and clear on focus loss, navigation, or Hide.
 - Explicit clipboard copies are cleared after 60 seconds while the app runs, before blocking authentication, or on normal exit, provided the clipboard still contains the app's latest copy. Copies retained by other software cannot be revoked.
 - The SDK requires a logged-in macOS session for interactive authentication. It does not target browsers, Linux/Windows servers, or unattended jobs.

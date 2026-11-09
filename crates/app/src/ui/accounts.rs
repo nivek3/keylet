@@ -1,7 +1,7 @@
-use super::{curve_selector, WalletApp};
+use super::{WalletApp, curve_selector};
 use crate::{
     macos,
-    model::{derive, Curve, Failure, KeyRequest, Result, DEFAULT_ETH_PATH},
+    model::{Curve, DEFAULT_ETH_PATH, Failure, KeyRequest, Result, derive},
     theme,
 };
 use eframe::egui;
@@ -31,7 +31,10 @@ impl Default for AccountView {
 impl AccountView {
     pub(super) fn select_wallet(&mut self, name: &str) {
         if self.wallet != name {
-            *self = Self { wallet: name.into(), ..Self::default() };
+            *self = Self {
+                wallet: name.into(),
+                ..Self::default()
+            };
         }
     }
 
@@ -51,19 +54,29 @@ impl AccountView {
                 Curve::Ed25519 => format!("m/44'/501'/{index}'/0'"),
             }
         };
-        let request = KeyRequest { name: self.wallet.clone(), curve: self.curve, path };
+        let request = KeyRequest {
+            name: self.wallet.clone(),
+            curve: self.curve,
+            path,
+        };
         request.validate()?;
         Ok(request)
     }
 
     fn inputs(&mut self, ui: &mut egui::Ui) -> Option<KeyRequest> {
-        let previous = (self.curve, self.full_path, self.index.clone(), self.path.clone());
+        let previous = (
+            self.curve,
+            self.full_path,
+            self.index.clone(),
+            self.path.clone(),
+        );
         curve_selector(ui, &mut self.curve);
         if self.curve != previous.0 {
             self.path = match self.curve {
                 Curve::Secp256k1 => DEFAULT_ETH_PATH,
                 Curve::Ed25519 => crate::model::DEFAULT_SOL_PATH,
-            }.into();
+            }
+            .into();
         }
         ui.add_space(8.0);
         ui.checkbox(&mut self.full_path, "Use full derivation path");
@@ -79,22 +92,29 @@ impl AccountView {
         }
         let request = self.request();
         if let Ok(request) = &request {
-            ui.add(
-                egui::Label::new(egui::RichText::new(&request.path).monospace()).wrap(),
-            );
+            ui.add(egui::Label::new(egui::RichText::new(&request.path).monospace()).wrap());
         } else if !self.full_path {
             let height = ui.text_style_height(&egui::TextStyle::Monospace);
             ui.allocate_space(egui::vec2(0.0, height));
         }
-        if previous != (self.curve, self.full_path, self.index.clone(), self.path.clone()) {
+        if previous
+            != (
+                self.curve,
+                self.full_path,
+                self.index.clone(),
+                self.path.clone(),
+            )
+        {
             self.address = None;
             self.message.clear();
         }
         ui.add_space(8.0);
         let focused = ui.ctx().input(|input| input.focused);
-        if ui.add_enabled_ui(focused, |ui| {
-            theme::primary(ui, "Authenticate and view")
-        }).inner.clicked() {
+        if ui
+            .add_enabled_ui(focused, |ui| theme::primary(ui, "Authenticate and view"))
+            .inner
+            .clicked()
+        {
             self.address = None;
             self.message.clear();
             match request {
@@ -103,7 +123,8 @@ impl AccountView {
                     "Enter a valid derivation path. Solana requires every component to be hardened."
                 } else {
                     "Enter a whole-number index from 0 to 2147483647."
-                }.into(),
+                }
+                .into(),
             }
         }
         None
@@ -114,20 +135,32 @@ impl WalletApp {
     pub(super) fn derived_account(&mut self, ui: &mut egui::Ui) {
         if let Some(request) = self.account_view.inputs(ui) {
             self.prepare_authentication();
-            let reason = format!("view a derived address for wallet \"{}\"\nCurve: {}\nPath: {}",
-                request.name, request.curve.name(), request.path);
+            let reason = format!(
+                "view a derived address for wallet \"{}\"\nCurve: {}\nPath: {}",
+                request.name,
+                request.curve.name(),
+                request.path
+            );
             let context = macos::AuthContext::new(&reason, false);
-            match self.vault.read(&request.name, &context)
-                .and_then(|wallet| derive(&wallet, &request, None).map(|pair| pair.address)) {
+            match self
+                .vault
+                .read(&request.name, &context)
+                .and_then(|wallet| derive(&wallet, &request, None).map(|pair| pair.address))
+            {
                 Ok(address) => self.account_view.address = Some(address),
-                Err(error) => self.account_view.message = format!("Address not shown ({}).", error.code()),
+                Err(error) => {
+                    self.account_view.message = format!("Address not shown ({}).", error.code())
+                }
             }
         }
         if let Some(address) = &self.account_view.address {
             theme::account_row(ui, "Address", Some(address));
             if theme::secondary(ui, "Copy address").clicked() {
                 self.account_view.message = match self.clipboard.copy(address) {
-                    Ok(()) => "Address copied. Clipboard clears after 60 seconds while the app is open.".into(),
+                    Ok(()) => {
+                        "Address copied. Clipboard clears after 60 seconds while the app is open."
+                            .into()
+                    }
                     Err(_) => "Unable to copy the address.".into(),
                 };
             }
@@ -174,7 +207,10 @@ mod tests {
             });
             positions.push(button_y.expect("derive button should be visible"));
         }
-        assert!(positions.iter().all(|y| (y - positions[0]).abs() < 0.5), "{positions:?}");
+        assert!(
+            positions.iter().all(|y| (y - positions[0]).abs() < 0.5),
+            "{positions:?}"
+        );
     }
 
     #[test]
@@ -226,14 +262,26 @@ mod tests {
         };
         let mut view = AccountView::default();
         view.select_wallet("public-test");
-        assert_eq!(derive(&wallet, &view.request().unwrap(), None).unwrap().address,
-            "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266");
+        assert_eq!(
+            derive(&wallet, &view.request().unwrap(), None)
+                .unwrap()
+                .address,
+            "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266"
+        );
         view.index = "2".into();
-        assert_eq!(derive(&wallet, &view.request().unwrap(), None).unwrap().address,
-            "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc");
+        assert_eq!(
+            derive(&wallet, &view.request().unwrap(), None)
+                .unwrap()
+                .address,
+            "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc"
+        );
         view.curve = Curve::Ed25519;
         view.index = "0".into();
-        assert_eq!(derive(&wallet, &view.request().unwrap(), None).unwrap().address,
-            "oeYf6KAJkLYhBuR8CiGc6L4D4Xtfepr85fuDgA9kq96");
+        assert_eq!(
+            derive(&wallet, &view.request().unwrap(), None)
+                .unwrap()
+                .address,
+            "oeYf6KAJkLYhBuR8CiGc6L4D4Xtfepr85fuDgA9kq96"
+        );
     }
 }

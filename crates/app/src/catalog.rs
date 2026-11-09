@@ -1,4 +1,4 @@
-use crate::model::{validate_name, Failure, Result, WalletSummary};
+use crate::model::{Failure, Result, WalletSummary, validate_name};
 use std::{
     fs::{self, File, OpenOptions},
     io::{Read, Write},
@@ -186,7 +186,8 @@ mod tests {
                 scope.spawn(move || {
                     let _ = send.send(catalog.upsert(WalletSummary::named("new-wallet".into())));
                 });
-                receive.recv_timeout(std::time::Duration::from_secs(2))
+                receive
+                    .recv_timeout(std::time::Duration::from_secs(2))
                     .expect("a catalog writer must finish while sync waits for authentication")?;
                 Ok(vec![WalletSummary::named("stale-snapshot".into())])
             })
@@ -243,12 +244,14 @@ mod tests {
             ),
             ["restored"]
         );
-        assert!(c
-            .upsert(WalletSummary::named("invalid name".into()))
-            .is_err());
-        assert!(c
-            .sync(|| Ok(vec![WalletSummary::named("invalid name".into())]))
-            .is_err());
+        assert!(
+            c.upsert(WalletSummary::named("invalid name".into()))
+                .is_err()
+        );
+        assert!(
+            c.sync(|| Ok(vec![WalletSummary::named("invalid name".into())]))
+                .is_err()
+        );
         assert_eq!(names(c.load().unwrap()), ["restored"]);
         fs::remove_dir_all(c.path.parent().unwrap()).unwrap();
     }

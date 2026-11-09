@@ -11,7 +11,7 @@ use std::{path::PathBuf, ptr};
 const BUNDLE_ID: &str = "com.nivek3.keylet";
 
 #[link(name = "CoreServices", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     fn LSCopyApplicationURLsForBundleIdentifier(
         identifier: CFStringRef,
         error: *mut *const std::ffi::c_void,
@@ -21,9 +21,7 @@ extern "C" {
 fn bundle_executable(url: CFURL) -> BridgeResult<PathBuf> {
     let bundle = CFBundle::new(url).ok_or("Bundle not found")?;
     let identifier = unsafe { CFBundleGetIdentifier(bundle.as_concrete_TypeRef()) };
-    if identifier.is_null()
-        || unsafe { CFString::wrap_under_get_rule(identifier) } != BUNDLE_ID
-    {
+    if identifier.is_null() || unsafe { CFString::wrap_under_get_rule(identifier) } != BUNDLE_ID {
         return Err("Bundle identifier mismatch");
     }
     bundle

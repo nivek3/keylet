@@ -25,19 +25,33 @@ fn pipe_descriptor(fd: i32) -> bool {
         matches!(stat.st_mode & libc::S_IFMT, libc::S_IFIFO | libc::S_IFSOCK)
     }
 }
-fn read_request(input: &mut impl Read, session: &mut macos::AuthenticationSession, fd: Option<i32>) -> Result<Option<KeyRequest>> {
+fn read_request(
+    input: &mut impl Read,
+    session: &mut macos::AuthenticationSession,
+    fd: Option<i32>,
+) -> Result<Option<KeyRequest>> {
     let mut data = Vec::new();
     loop {
         if let Some(fd) = fd {
             loop {
                 let now = std::time::Instant::now();
                 session.expire(now);
-                let timeout = session.remaining(now)
-                    .map(|time| time.as_millis().min(i32::MAX as u128) as i32).unwrap_or(-1);
-                let mut poll = libc::pollfd { fd, events: libc::POLLIN, revents: 0 };
+                let timeout = session
+                    .remaining(now)
+                    .map(|time| time.as_millis().min(i32::MAX as u128) as i32)
+                    .unwrap_or(-1);
+                let mut poll = libc::pollfd {
+                    fd,
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
                 let ready = unsafe { libc::poll(&mut poll, 1, timeout) };
-                if ready > 0 { break; }
-                if ready < 0 && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                if ready > 0 {
+                    break;
+                }
+                if ready < 0
+                    && std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+                {
                     return Err(Failure::Transport);
                 }
             }
@@ -45,11 +59,19 @@ fn read_request(input: &mut impl Read, session: &mut macos::AuthenticationSessio
         let mut byte = [0];
         let count = input.read(&mut byte).map_err(|_| Failure::Transport)?;
         if count == 0 {
-            return if data.is_empty() { Ok(None) } else { Err(Failure::Input) };
+            return if data.is_empty() {
+                Ok(None)
+            } else {
+                Err(Failure::Input)
+            };
         }
-        if byte[0] == b'\n' { break; }
+        if byte[0] == b'\n' {
+            break;
+        }
         data.push(byte[0]);
-        if data.len() > 2048 { return Err(Failure::Input); }
+        if data.len() > 2048 {
+            return Err(Failure::Input);
+        }
     }
     let request: KeyRequest = serde_json::from_slice(&data).map_err(|_| Failure::Input)?;
     request.validate()?;
@@ -67,14 +89,27 @@ fn bridge(vault: &macos::Vault, requested_ttl: u64) -> Result<()> {
         objc2::rc::autoreleasepool(|_| -> Result<()> {
             // Reuse requires a saved policy in the app's private Keychain group.
             let ttl = requested_ttl.min(vault.authentication_ttl()?);
-            let reason = format!("provide a private key from wallet \"{}\" to your script\nCurve: {}\nPath: {}", request.name, request.curve.name(), request.path);
-            let context = session.context(&reason, std::time::Duration::from_secs(ttl), std::time::Instant::now());
+            let reason = format!(
+                "provide a private key from wallet \"{}\" to your script\nCurve: {}\nPath: {}",
+                request.name,
+                request.curve.name(),
+                request.path
+            );
+            let context = session.context(
+                &reason,
+                std::time::Duration::from_secs(ttl),
+                std::time::Instant::now(),
+            );
             let wallet = vault.read(&request.name, context);
             session.complete(wallet.is_ok(), std::time::Instant::now());
             let pair = model::derive(&wallet?, &request, None)?;
             // Only the selected key crosses the inherited private pipe, never stdout.
-            secret_pipe.write_all(&*pair.key).map_err(|_| Failure::Transport)?;
-            emit(&serde_json::json!({"name":request.name,"path":request.path,"curve":request.curve.name(),"publicKey":pair.public_key}))
+            secret_pipe
+                .write_all(&*pair.key)
+                .map_err(|_| Failure::Transport)?;
+            emit(
+                &serde_json::json!({"name":request.name,"path":request.path,"curve":request.curve.name(),"publicKey":pair.public_key}),
+            )
         })?;
     }
     Ok(())
@@ -90,7 +125,10 @@ fn main_impl() -> Result<()> {
         }
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
     }
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args = std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.into_string().map_err(|_| Failure::Input))
+        .collect::<Result<Vec<_>>>()?;
     let vault = macos::Vault::new()?;
     if args == ["check-signing"] {
         return emit(
@@ -156,32 +194,61 @@ mod tests {
         let mut session = macos::AuthenticationSession::default();
         let request = b"{\"name\":\"public-test\",\"curve\":\"ed25519\",\"path\":\"m/0'\"}\n";
         let mut input = request.as_slice();
-        assert!(read_request(&mut input, &mut session, None).unwrap().is_some());
-        assert!(read_request(&mut input, &mut session, None).unwrap().is_none());
-        assert!(read_request(&mut request[..request.len()-1].as_ref(), &mut session, None).is_err());
+        assert!(read_request(&mut input, &mut session, None)
+            .unwrap()
+            .is_some());
+        assert!(read_request(&mut input, &mut session, None)
+            .unwrap()
+            .is_none());
+        assert!(read_request(
+            &mut request[..request.len() - 1].as_ref(),
+            &mut session,
+            None
+        )
+        .is_err());
         assert!(read_request(&mut vec![b' '; 2049].as_slice(), &mut session, None).is_err());
-        for mut invalid in [b"{}\n".as_slice(), b"{\"name\":\"test\",\"curve\":\"ed25519\",\"path\":\"m/0'/1\"}\n"] {
+        for mut invalid in [
+            b"{}\n".as_slice(),
+            b"{\"name\":\"test\",\"curve\":\"ed25519\",\"path\":\"m/0'/1\"}\n",
+        ] {
             assert!(read_request(&mut invalid, &mut session, None).is_err());
         }
     }
     #[test]
     fn idle_bridge_expires_authentication_and_reads_multiple_frames() {
-        use std::{os::fd::AsRawFd, time::{Duration, Instant}};
+        use std::{
+            os::fd::AsRawFd,
+            time::{Duration, Instant},
+        };
         let (mut input, mut writer) = std::os::unix::net::UnixStream::pair().unwrap();
         let fd = input.as_raw_fd();
         let mut session = macos::AuthenticationSession::default();
-        session.context("Public pipe fixture", Duration::from_millis(20), Instant::now());
+        session.context(
+            "Public pipe fixture",
+            Duration::from_millis(20),
+            Instant::now(),
+        );
         session.complete(true, Instant::now());
         let sender = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(50));
             for _ in 0..2 {
-                writeln!(writer, "{{\"name\":\"test\",\"curve\":\"ed25519\",\"path\":\"m/0'\"}}").unwrap();
+                writeln!(
+                    writer,
+                    "{{\"name\":\"test\",\"curve\":\"ed25519\",\"path\":\"m/0'\"}}"
+                )
+                .unwrap();
             }
         });
-        assert!(read_request(&mut input, &mut session, Some(fd)).unwrap().is_some());
+        assert!(read_request(&mut input, &mut session, Some(fd))
+            .unwrap()
+            .is_some());
         assert!(session.remaining(Instant::now()).is_none());
-        assert!(read_request(&mut input, &mut session, Some(fd)).unwrap().is_some());
-        assert!(read_request(&mut input, &mut session, Some(fd)).unwrap().is_none());
+        assert!(read_request(&mut input, &mut session, Some(fd))
+            .unwrap()
+            .is_some());
+        assert!(read_request(&mut input, &mut session, Some(fd))
+            .unwrap()
+            .is_none());
         sender.join().unwrap();
     }
     #[test]

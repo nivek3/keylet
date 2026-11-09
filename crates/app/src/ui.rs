@@ -10,6 +10,7 @@ use crate::{
 use eframe::egui::{self, Event, Id, TextEdit, ViewportCommand};
 use std::{
     cell::Cell,
+    io::Write,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -18,6 +19,8 @@ use zeroize::{Zeroize, Zeroizing};
 const SEED_CLIPBOARD_NOTICE: &str =
     "Clears after 60s while open. Other apps may keep a copy.";
 const MIN_RECOVERY_CARD_HEIGHT: f32 = 184.0;
+const DELETE_INDEX_WARNING: &str =
+    "A wallet was deleted from Keychain, but the local name list could not be updated. Use Sync from Keychain to repair it.";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Stage {
@@ -543,15 +546,18 @@ impl WalletApp {
         )?;
         self.public_key = pair.public_key;
         self.identifier = pair.identifier;
-        self.mnemonic.zeroize();
-        self.passphrase.zeroize();
-        self.repeated_passphrase.zeroize();
         self.pending = Some(PendingWallet::new(wallet, self.creating));
         if self.creating {
+            self.mnemonic.zeroize();
+            self.passphrase.zeroize();
+            self.repeated_passphrase.zeroize();
             self.stage = Stage::Reveal;
             Ok(())
         } else {
-            self.save()
+            // Keep the form inputs for retry and drop the extra prepared copy.
+            let result = self.save();
+            self.pending = None;
+            result
         }
     }
     fn save(&mut self) -> Result<()> {
@@ -951,17 +957,22 @@ impl WalletApp {
                             })
                         });
                     match result {
-                            Ok(()) if self.cli_delete => {
-                                match crate::emit(&serde_json::json!({"name":self.name})) {
-                                    Ok(()) => { self.cli_result.set(Some(Ok(()))); ctx.send_viewport_cmd(ViewportCommand::Close); }
-                                    Err(error) => { self.cli_result.set(Some(Err(error))); ctx.send_viewport_cmd(ViewportCommand::Close); }
-                                }
+                        Ok(()) if self.cli_delete => {
+                            if index_failed {
+                                let _ = writeln!(std::io::stderr(), "{DELETE_INDEX_WARNING}");
                             }
-                            Ok(()) => self.return_to_wallets(),
-                            Err(error) => self.message = format!("Deletion stopped ({}). Review the remaining wallets before trying again.", error.code()),
+                            let output = crate::emit(&serde_json::json!({"name":self.name}));
+                            self.cli_result.set(Some(output));
+                            ctx.send_viewport_cmd(ViewportCommand::Close);
                         }
-                    if index_failed {
-                        self.message.push_str(" A wallet was deleted from Keychain, but the local name list could not be updated. Use Sync from Keychain to repair it.");
+                        Ok(()) => self.return_to_wallets(),
+                        Err(error) => self.message = format!("Deletion stopped ({}). Review the remaining wallets before trying again.", error.code()),
+                    }
+                    if index_failed && !self.cli_delete {
+                        if !self.message.is_empty() {
+                            self.message.push(' ');
+                        }
+                        self.message.push_str(DELETE_INDEX_WARNING);
                     }
                 }
             }

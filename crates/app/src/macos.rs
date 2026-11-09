@@ -8,7 +8,7 @@ use core_foundation::{
     number::CFNumber,
     string::{CFString, CFStringRef},
 };
-use objc2::{rc::Retained, runtime::AnyObject, MainThreadMarker};
+use objc2::{MainThreadMarker, rc::Retained, runtime::AnyObject};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSColor, NSEvent, NSEventMask,
     NSEventModifierFlags, NSPasteboard,
@@ -32,7 +32,7 @@ const NODE_TTL_ACCOUNT: &str = "node-authentication-ttl";
 const ITEM_NOT_FOUND: i32 = -25300;
 const DUPLICATE_ITEM: i32 = -25299;
 #[link(name = "Security", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     fn SecCodeCopyStaticCode(code: SecCodeRef, flags: u32, output: *mut SecStaticCodeRef) -> i32;
     fn SecCodeCopySigningInformation(
         code: SecStaticCodeRef,
@@ -43,12 +43,15 @@ extern "C" {
     static kSecCodeInfoFlags: CFStringRef;
     static kSecAttrAccessible: CFStringRef;
     static kSecMatchLimitOne: CFStringRef;
+    static kSecValuePersistentRef: CFStringRef;
 }
 #[link(name = "Carbon", kind = "framework")]
-extern "C" {
+unsafe extern "C" {
     fn EnableSecureEventInput() -> i32;
     fn DisableSecureEventInput() -> i32;
 }
+
+// SAFETY: Security exports these functions for the lifetime of the process.
 fn status(code: i32) -> Result<()> {
     match code {
         0 => Ok(()),
@@ -60,12 +63,18 @@ fn status(code: i32) -> Result<()> {
         _ => Err(Failure::Keychain),
     }
 }
+
+// SAFETY: Security exports these CFString constants for the lifetime of the process.
 unsafe fn symbol(key: CFStringRef) -> CFString {
-    CFString::wrap_under_get_rule(key)
+    unsafe { CFString::wrap_under_get_rule(key) }
 }
+
+// SAFETY: Security exports these CFString constants for the lifetime of the process.
 fn value(dict: &Dict, key: &str) -> Option<CFType> {
     dict.find(CFString::new(key)).map(|v| (*v).clone())
 }
+
+// SAFETY: Security exports these CFString constants for the lifetime of the process.
 fn dictionary(value: CFType) -> Result<Dict> {
     let untyped = value
         .downcast::<CFDictionary>()
@@ -358,38 +367,59 @@ impl Vault {
             ))
         }
     }
-    pub fn read(&self, name: &str, context: &AuthContext) -> Result<StoredWallet> {
+
+    fn wallet_data_query(
+        &self,
+        name: &str,
+        context: &AuthContext,
+    ) -> Result<Vec<(CFString, CFType)>> {
         crate::model::validate_name(name)?;
+        let mut q = self.query(Some(name));
+        // SAFETY: Security exports these CFString constants for the lifetime of the process.
         unsafe {
-            let mut q = self.query(Some(name));
             q.push((symbol(kSecUseAuthenticationContext), context.as_cf()));
             q.push((symbol(kSecReturnData), CFBoolean::true_value().as_CFType()));
             q.push((
                 symbol(kSecMatchLimit),
                 symbol(kSecMatchLimitOne).as_CFType(),
             ));
+        }
+        Ok(q)
+    }
+
+    fn copy_wallet_item(q: &[(CFString, CFType)]) -> Result<CFType> {
+        // SAFETY: The query owns its attributes. A successful lookup returns a retained object.
+        unsafe {
             let mut result = ptr::null();
             status(SecItemCopyMatching(
-                Dict::from_CFType_pairs(&q).as_concrete_TypeRef(),
+                Dict::from_CFType_pairs(q).as_concrete_TypeRef(),
                 &mut result,
             ))?;
             if result.is_null() {
                 return Err(Failure::Corrupt);
             }
-            let item = CFType::wrap_under_create_rule(result);
-            let data = item.downcast::<CFData>().ok_or(Failure::Corrupt)?;
-            if data.len() > 16384 {
-                return Err(Failure::Corrupt);
-            }
-            let owned = Zeroizing::new(data.bytes().to_vec());
-            let wallet: StoredWallet =
-                serde_json::from_slice(&owned).map_err(|_| Failure::Corrupt)?;
-            if wallet.version != 1 {
-                return Err(Failure::Corrupt);
-            }
-            Ok(wallet)
+            Ok(CFType::wrap_under_create_rule(result))
         }
     }
+
+    fn decode_wallet(data: &CFType) -> Result<StoredWallet> {
+        let data = data.downcast::<CFData>().ok_or(Failure::Corrupt)?;
+        if data.len() > 16384 {
+            return Err(Failure::Corrupt);
+        }
+        let owned = Zeroizing::new(data.bytes().to_vec());
+        let wallet: StoredWallet = serde_json::from_slice(&owned).map_err(|_| Failure::Corrupt)?;
+        if wallet.version != 1 {
+            return Err(Failure::Corrupt);
+        }
+        Ok(wallet)
+    }
+
+    pub fn read(&self, name: &str, context: &AuthContext) -> Result<StoredWallet> {
+        let q = self.wallet_data_query(name, context)?;
+        Self::decode_wallet(&Self::copy_wallet_item(&q)?)
+    }
+
     fn names_query(&self, context: &AuthContext) -> Dict {
         unsafe {
             let mut q = self.query(None);
@@ -432,6 +462,7 @@ impl Vault {
             Ok(names)
         }
     }
+
     pub fn summaries(&self) -> Result<Vec<WalletSummary>> {
         let context = AuthContext::new(
             "refresh your wallet list and default account addresses",
@@ -445,20 +476,46 @@ impl Vault {
             })
             .collect()
     }
-    pub fn delete(&self, name: &str, context: &AuthContext) -> Result<()> {
-        crate::model::validate_name(name)?;
+
+    fn delete_query(item: &Dict, context: &AuthContext) -> Result<Dict> {
+        // SAFETY: Security exports these CFString constants for the lifetime of the process.
         unsafe {
-            let mut q = self.query(Some(name));
-            q.push((symbol(kSecUseAuthenticationContext), context.as_cf()));
-            status(SecItemDelete(
-                Dict::from_CFType_pairs(&q).as_concrete_TypeRef(),
-            ))
+            let key = symbol(kSecValuePersistentRef);
+            let persistent_ref = item
+                .find(&key)
+                .and_then(|v| v.downcast::<CFData>())
+                .filter(|data| !data.is_empty())
+                .ok_or(Failure::Corrupt)?;
+            // The data protection Keychain selects the item directly by persistent reference.
+            Ok(Dict::from_CFType_pairs(&[
+                (key, persistent_ref.as_CFType()),
+                (
+                    symbol(kSecUseDataProtectionKeychain),
+                    CFBoolean::true_value().as_CFType(),
+                ),
+                (symbol(kSecUseAuthenticationContext), context.as_cf()),
+            ]))
         }
     }
+
     pub fn delete_authenticated(&self, name: &str) -> Result<()> {
         let context = AuthContext::new(&format!("permanently delete wallet \"{name}\""), false);
-        self.read(name, &context)?;
-        self.delete(name, &context)
+        let mut q = self.wallet_data_query(name, &context)?;
+        // SAFETY: The Security keys are process-lifetime constants and both queries own their values.
+        unsafe {
+            q.push((
+                symbol(kSecReturnPersistentRef),
+                CFBoolean::true_value().as_CFType(),
+            ));
+            let deletion = {
+                // Fetch protected data and identity in the same authenticated lookup.
+                let item = dictionary(Self::copy_wallet_item(&q)?).map_err(|_| Failure::Corrupt)?;
+                let data = item.find(symbol(kSecValueData)).ok_or(Failure::Corrupt)?;
+                Self::decode_wallet(&data)?;
+                Self::delete_query(&item, &context)?
+            };
+            status(SecItemDelete(deletion.as_concrete_TypeRef()))
+        }
     }
 }
 
@@ -488,6 +545,7 @@ pub fn initialize_accessory() -> Result<()> {
     app.finishLaunching();
     Ok(())
 }
+
 pub fn generate_mnemonic() -> Result<Zeroizing<String>> {
     let mut entropy = Zeroizing::new([0u8; 16]);
     if unsafe { SecRandomCopyBytes(kSecRandomDefault, 16, entropy.as_mut_ptr().cast()) } != 0 {
@@ -777,6 +835,34 @@ mod tests {
             assert!(value(&names, &symbol(kSecAttrAccount).to_string()).is_none());
         }
     }
+
+    #[test]
+    fn delete_query_requires_the_authenticated_items_reference() {
+        let context = AuthContext::new("Public deletion fixture", true);
+        // SAFETY: Security exports these CFString constants for the lifetime of the process.
+        unsafe {
+            let account = (
+                symbol(kSecAttrAccount),
+                CFString::new("public-test").as_CFType(),
+            );
+            let key = symbol(kSecValuePersistentRef);
+            let without_reference = Dict::from_CFType_pairs(std::slice::from_ref(&account));
+            assert!(matches!(
+                Vault::delete_query(&without_reference, &context),
+                Err(Failure::Corrupt)
+            ));
+            let reference = CFData::from_buffer(b"test-reference").as_CFType();
+            let item = Dict::from_CFType_pairs(&[account, (key.clone(), reference.clone())]);
+            let query = Vault::delete_query(&item, &context).unwrap();
+            assert_eq!(*query.get(key), reference);
+            assert!(!query.contains_key(&symbol(kSecAttrAccount)));
+            assert_eq!(
+                *query.get(symbol(kSecUseDataProtectionKeychain)),
+                CFBoolean::true_value().as_CFType()
+            );
+        }
+    }
+
     #[test]
     fn status_errors_do_not_expose_framework_messages() {
         assert_eq!(status(-34018), Err(Failure::Configuration));

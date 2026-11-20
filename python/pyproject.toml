@@ -1,0 +1,22 @@
+[build-system]
+requires = ["maturin>=1.9.4,<2"]
+build-backend = "maturin"
+
+[project]
+name = "keylet-macos"
+description = "Python SDK for the Keylet macOS wallet app"
+requires-python = ">=3.10"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/nivek3/keylet"
+
+[tool.maturin]
+manifest-path = "../crates/python/Cargo.toml"
+module-name = "keylet"
+macos-deployment-target = "14.0"
+profile = "release"
+locked = true

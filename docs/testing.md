@@ -26,6 +26,8 @@ The repository currently has no required status checks. Before making either job
 
 Node jobs cache the pnpm store through `setup-node`, keyed by `node/pnpm-lock.yaml`. Rust jobs use `Swatinem/rust-cache` for registry and dependency build outputs, without caching installed binaries. Ubuntu does not restore Rust outputs. Release workflows keep separate Rust caches because their universal release targets differ from the check job; signing assets and packaged releases are not cached.
 
+The Python jobs build a macOS 14 wheel on both Apple Silicon and Intel, install each wheel in a clean environment, and verify the public import and input validation. A development wheel exercises both curves and helper failures with public fixtures. Only release wheels are uploaded. See [Python wheel testing](../python/README.md#build-and-test-a-wheel).
+
 ## Interactive checks
 
 Use an unfunded test wallet and complete authentication locally. Check creation, backup confirmation, import, key reads, cancellation, Touch ID or password fallback, and profile renewal. Do not send recovery phrases or private keys to chat. Automated tests do not delete real wallets or execute blockchain transactions.

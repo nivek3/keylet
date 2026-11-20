@@ -30,7 +30,6 @@ fn bundle_executable(url: CFURL) -> BridgeResult<PathBuf> {
         .ok_or("Executable not found")
 }
 
-#[allow(dead_code)]
 pub(super) fn app_executable() -> BridgeResult<PathBuf> {
     let identifier = CFString::new(BUNDLE_ID);
     let urls = unsafe {

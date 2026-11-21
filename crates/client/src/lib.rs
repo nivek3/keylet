@@ -50,11 +50,13 @@ static SESSION: OnceLock<Mutex<Option<AppSession>>> = OnceLock::new();
 
 /// Validates the selection and requests its key pair from the registered app.
 ///
+/// The cancellation predicate runs while holding the session lock.
+///
 /// # Errors
 ///
 /// Returns a stable message for invalid input, discovery, transport, or app errors.
-pub fn key_pair(input: &Value) -> BridgeResult<KeyPair> {
-    request(input, discovery::app_executable)
+pub fn key_pair(input: &Value, cancelled: impl Fn() -> bool) -> BridgeResult<KeyPair> {
+    request(input, discovery::app_executable, cancelled)
 }
 
 /// Sends a request to a public test fixture in development builds.
@@ -63,19 +65,30 @@ pub fn key_pair(input: &Value) -> BridgeResult<KeyPair> {
 ///
 /// Returns the same errors as [`key_pair`] for invalid input or helper failures.
 #[cfg(debug_assertions)]
-pub fn key_pair_for_test(input: &Value, executable: PathBuf) -> BridgeResult<KeyPair> {
-    request(input, || Ok(executable))
+pub fn key_pair_for_test(
+    input: &Value,
+    executable: PathBuf,
+    cancelled: impl Fn() -> bool,
+) -> BridgeResult<KeyPair> {
+    request(input, || Ok(executable), cancelled)
 }
 
-fn request(input: &Value, discover: impl FnOnce() -> BridgeResult<PathBuf>) -> BridgeResult<KeyPair> {
+fn request(
+    input: &Value,
+    discover: impl FnOnce() -> BridgeResult<PathBuf>,
+    cancelled: impl Fn() -> bool,
+) -> BridgeResult<KeyPair> {
     let (name, curve, path, authentication_ttl) = validate(input)?;
-    unlock(Selection {
-        helper: discover()?,
-        name,
-        curve,
-        path,
-        authentication_ttl,
-    })
+    unlock(
+        Selection {
+            helper: discover()?,
+            name,
+            curve,
+            path,
+            authentication_ttl,
+        },
+        cancelled,
+    )
 }
 
 fn validate(input: &Value) -> BridgeResult<(String, Curve, String, u64)> {
@@ -130,11 +143,14 @@ fn validate(input: &Value) -> BridgeResult<(String, Curve, String, u64)> {
     Ok((name.to_owned(), curve, path, authentication_ttl))
 }
 
-fn unlock(selection: Selection) -> BridgeResult<KeyPair> {
+fn unlock(selection: Selection, cancelled: impl Fn() -> bool) -> BridgeResult<KeyPair> {
     let mut session = SESSION
         .get_or_init(|| Mutex::new(None))
         .lock()
         .map_err(|_| "KEYCHAIN_ERROR")?;
+    if cancelled() {
+        return Err("CANCELLED");
+    }
     let reusable = match session.as_mut() {
         Some(helper)
             if helper.path == selection.helper && helper.ttl == selection.authentication_ttl =>
@@ -151,10 +167,11 @@ fn unlock(selection: Selection) -> BridgeResult<KeyPair> {
         *session = None;
         *session = Some(AppSession::start(&selection)?);
     }
-    let result = session
-        .as_mut()
-        .ok_or("TRANSPORT_ERROR")?
-        .read_key(&selection, Duration::from_secs(120));
+    let result = session.as_mut().ok_or("TRANSPORT_ERROR")?.read_key(
+        &selection,
+        Duration::from_secs(120),
+        cancelled,
+    );
     if result.is_err() {
         *session = None;
     }
@@ -254,13 +271,21 @@ impl AppSession {
             secret,
         })
     }
-    fn read_key(&mut self, selection: &Selection, timeout: Duration) -> BridgeResult<KeyPair> {
+    fn read_key(
+        &mut self,
+        selection: &Selection,
+        timeout: Duration,
+        cancelled: impl Fn() -> bool,
+    ) -> BridgeResult<KeyPair> {
         let request = json!({"name": selection.name, "curve": selection.curve.name(), "path": selection.path});
         writeln!(self.stdin, "{request}").map_err(|_| "TRANSPORT_ERROR")?;
         let mut key = Zeroizing::new(Vec::with_capacity(32));
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let deadline = Instant::now() + timeout;
         loop {
+            if cancelled() {
+                return Err("CANCELLED");
+            }
             let key_done = drain(&mut self.secret, &mut key, 32)?;
             let out_done = drain(&mut self.stdout, &mut out, 2048)?;
             let err_done = drain(&mut self.stderr, &mut err, 1024)?;
@@ -491,9 +516,11 @@ mod tests {
         };
         let start = Instant::now();
         assert!(matches!(
-            AppSession::start(&selection)
-                .unwrap()
-                .read_key(&selection, Duration::from_millis(40)),
+            AppSession::start(&selection).unwrap().read_key(
+                &selection,
+                Duration::from_millis(40),
+                || false
+            ),
             Err("AUTHENTICATION_TIMEOUT")
         ));
         assert!(start.elapsed() < Duration::from_secs(1));
@@ -517,13 +544,16 @@ mod tests {
             path: "m/0'".into(),
             authentication_ttl: 300,
         };
-        assert!(matches!(unlock(selection.clone()), Err("CANCELLED")));
+        assert!(matches!(
+            unlock(selection.clone(), || false),
+            Err("CANCELLED")
+        ));
         fs::write(
             &helper,
             "#!/bin/sh\nread request\nprintf 'NOT_FOUND\\n' >&2\nexit 1\n",
         )
         .unwrap();
-        assert!(matches!(unlock(selection), Err("NOT_FOUND")));
+        assert!(matches!(unlock(selection, || false), Err("NOT_FOUND")));
         fs::remove_dir_all(root).unwrap();
     }
 }

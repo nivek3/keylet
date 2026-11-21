@@ -11,14 +11,15 @@ pub struct JsKeyPair {
 
 #[napi]
 pub async fn get_key_pair(input: Value) -> Result<JsKeyPair> {
-    read_key_pair(move || wallet_client::key_pair(&input)).await
+    read_key_pair(move || wallet_client::key_pair(&input, || false)).await
 }
 
 // Release builds never expose a path override, including to tests or environment variables.
 #[cfg(debug_assertions)]
 #[napi]
 pub async fn get_key_pair_for_test(input: Value, executable: String) -> Result<JsKeyPair> {
-    read_key_pair(move || wallet_client::key_pair_for_test(&input, executable.into())).await
+    read_key_pair(move || wallet_client::key_pair_for_test(&input, executable.into(), || false))
+        .await
 }
 
 async fn read_key_pair(

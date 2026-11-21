@@ -8,7 +8,13 @@ use pyo3::{
 use serde_json::{Value, json};
 use std::{
     process,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicU32, Ordering},
+        mpsc::{self, RecvTimeoutError},
+    },
+    thread,
+    time::Duration,
 };
 use zeroize::Zeroizing;
 
@@ -53,7 +59,7 @@ fn selection(
 
 fn read_key_pair(
     py: Python<'_>,
-    request: impl FnOnce() -> Result<wallet_client::KeyPair, &'static str> + Send,
+    request: impl FnOnce(&AtomicBool) -> Result<wallet_client::KeyPair, &'static str> + Send + 'static,
 ) -> PyResult<KeyPair> {
     let pid = process::id();
     // A fork can inherit the parent's helper pipes or a locked mutex.
@@ -62,7 +68,32 @@ fn read_key_pair(
     {
         return Err(PyRuntimeError::new_err("FORKED_PROCESS"));
     }
-    let pair = py.detach(request).map_err(|code| {
+    // Python signal handlers can run arbitrary code, so check them outside the client lock.
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancelled = Arc::clone(&cancelled);
+    let (send, mut receive) = mpsc::channel();
+    thread::Builder::new()
+        .spawn(move || {
+            let _ = send.send(request(&worker_cancelled));
+        })
+        .map_err(|_| PyRuntimeError::new_err("THREAD_START_FAILED"))?;
+
+    let result = loop {
+        let receiver = &mut receive;
+        let result = py.detach(move || receiver.recv_timeout(Duration::from_millis(25)));
+        if let Err(error) = py.check_signals() {
+            cancelled.store(true, Ordering::Relaxed);
+            return Err(error);
+        }
+        match result {
+            Ok(result) => break result,
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => {
+                return Err(PyRuntimeError::new_err("CLIENT_REQUEST_FAILED"));
+            }
+        }
+    };
+    let pair = result.map_err(|code| {
         if code == wallet_client::INVALID {
             PyValueError::new_err(code)
         } else {
@@ -89,7 +120,9 @@ fn get_key_pair(
     auth_ttl: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<KeyPair> {
     let input = selection(name, curve, index, path, auth_ttl)?;
-    read_key_pair(py, move || wallet_client::key_pair(&input))
+    read_key_pair(py, move |cancelled| {
+        wallet_client::key_pair(&input, || cancelled.load(Ordering::Relaxed))
+    })
 }
 
 #[cfg(debug_assertions)]
@@ -106,7 +139,9 @@ fn _get_key_pair_for_test(
 ) -> PyResult<KeyPair> {
     let input = selection(name, curve, index, path, auth_ttl)?;
     let executable = executable.into();
-    read_key_pair(py, move || wallet_client::key_pair_for_test(&input, executable))
+    read_key_pair(py, move |cancelled| {
+        wallet_client::key_pair_for_test(&input, executable, || cancelled.load(Ordering::Relaxed))
+    })
 }
 
 #[pymodule]

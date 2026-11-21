@@ -1,7 +1,10 @@
 import os
 from pathlib import Path
+import signal
 import sys
 import tempfile
+import threading
+import time
 import unittest
 
 from keylet.keylet import _get_key_pair_for_test
@@ -52,6 +55,31 @@ class PublicHelperTest(unittest.TestCase):
             os._exit(1)
         _, status = os.waitpid(pid, 0)
         self.assertEqual(os.waitstatus_to_exitcode(status), 0)
+
+    def test_sigint_interrupts_main_thread_and_allows_retry(self):
+        ready = self.helper.with_suffix(".ready")
+        stop = threading.Event()
+
+        def interrupt():
+            while not ready.exists():
+                if stop.wait(0.01):
+                    return
+            os.kill(os.getpid(), signal.SIGINT)
+
+        sender = threading.Thread(target=interrupt)
+        sender.start()
+        try:
+            started = time.monotonic()
+            with self.assertRaises(KeyboardInterrupt):
+                self.get_pair("interrupt")
+            self.assertLess(time.monotonic() - started, 5)
+        finally:
+            stop.set()
+            sender.join()
+
+        pair = self.get_pair("trading")
+        self.assertEqual(pair.public_key, "0x" + VECTORS["secp256k1"][2])
+        self.assertFalse(self.helper.with_suffix(".expired").exists())
 
 
 if __name__ == "__main__":

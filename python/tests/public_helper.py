@@ -1,6 +1,8 @@
 import json
 import os
+from pathlib import Path
 import sys
+import time
 
 # Public fixtures shared with the Node tests. Never fund these keys.
 VECTORS = {
@@ -32,6 +34,11 @@ def main():
         if request["path"] != path:
             fail("INVALID_INPUT")
         if name == "cancel":
+            fail("CANCELLED")
+        if name == "interrupt":
+            Path(__file__).with_suffix(".ready").touch()
+            time.sleep(5)
+            Path(__file__).with_suffix(".expired").touch()
             fail("CANCELLED")
         if name == "mismatch":
             public = "00"

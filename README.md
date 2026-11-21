@@ -2,13 +2,13 @@
 
 **A local key provider for Ethereum and Solana on macOS.**
 
-[中文](README_ZH.md) · [Node.js API](node/README.md) · [Signing](docs/signing.md) · [Testing](docs/testing.md)
+[中文](README_ZH.md) · [Node.js API](node/README.md) · [Python API](python/README.md) · [Signing](docs/signing.md) · [Testing](docs/testing.md)
 
 Keylet stores recovery phrases in macOS Keychain. Authenticate with Touch ID or your Mac password, then use the derived key with your own viem, ethers, or Ed25519 code.
 
-It includes a native macOS app, `Keylet.app`, and a Node.js SDK, `keylet`. The SDK starts the signed app in the background when it needs a key.
+It includes a native macOS app, `Keylet.app`, and SDKs for Node.js and Python. The SDK starts the signed app in the background when it needs a key.
 
-Private keys are intentionally returned to your Node.js process. This is a key provider, not a hardware wallet or a remote signing service.
+Private keys are intentionally returned to the calling process. Keep them in that process and out of logs or storage.
 
 **Not released yet.** Build the app and SDK from source using the steps below. Start with an unfunded test wallet; the project has not undergone an independent security audit.
 
@@ -35,7 +35,7 @@ https://github.com/user-attachments/assets/3554d122-92ed-412b-bce7-057f6dcdcdff
 - Lists wallet names and cached default Ethereum / Solana addresses without unlocking secrets. Use **Derived account** to verify an address.
 - Shows and copies Ethereum / Solana addresses by index or full derivation path after authentication, under **Derived account** in wallet details.
 - Reveals a recovery phrase or deletes a wallet after authentication and explicit user action.
-- Returns secp256k1 or SLIP-0010 Ed25519 key pairs through a small Node.js API.
+- Returns secp256k1 or SLIP-0010 Ed25519 key pairs through Node.js and Python APIs.
 
 Useful for local scripts and developer tools that need derived keys, with recovery phrases stored in Keychain under macOS system authentication.
 
@@ -79,6 +79,8 @@ The npm package does not include the macOS app. Build both before using the SDK.
    Complete the macOS authentication prompt. The example prints the Ethereum address for index `2`. Other examples: [ethers v5](node/examples/ethers-v5.ts), [viem](node/examples/viem.ts), [Ed25519](node/examples/ed25519.ts).
 
 After publication, install the SDK in your Node project with `npm install keylet`. The published package includes the compiled SDK; users do not need to build it. Install and open the complete app to register Bundle ID `com.nivek3.keylet` with macOS; discovery supports renamed apps. See the [API and troubleshooting guide](node/README.md).
+
+Python users can install a macOS wheel or build the SDK from source. See the [Python installation and API guide](python/README.md).
 
 ## How it works
 
@@ -124,7 +126,7 @@ Recovering an existing account requires the original derivation path and BIP-39 
 
 ## Development and documentation
 
-The app and native bridge are written in Rust, with a small TypeScript SDK. [`crates/`](crates/) contains the app, crypto, and napi-rs bridge; [`node/`](node/) contains the SDK and examples.
+[`crates/`](crates/) contains the app, derivation, shared bridge, and language bindings. [`node/`](node/) contains the TypeScript API and examples. [`python/`](python/) contains Python packaging and tests.
 
 - [Node.js API and troubleshooting](node/README.md)
 - [Build and signing](docs/signing.md), including [manual macOS release CI](docs/signing.md#manual-macos-release-ci)

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/app", "crates/crypto", "crates/node"]
+members = ["crates/app", "crates/client", "crates/crypto", "crates/node", "crates/python"]
 resolver = "2"
 
 [workspace.package]
@@ -16,6 +16,7 @@ keywords = ["keylet", "ethereum", "solana", "macos", "wallet"]
 
 [workspace.dependencies]
 # builtin dependencies
+wallet-client = { path = "crates/client" }
 wallet-crypto = { path = "crates/crypto" }
 
 # external dependencies

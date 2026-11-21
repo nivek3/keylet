@@ -2,13 +2,13 @@
 
 **为 Ethereum 和 Solana 提供密钥的 macOS 本机工具。**
 
-[English](README.md) · [Node.js API](node/README_ZH.md) · [签名配置](docs/signing.md) · [测试](docs/testing.md)
+[English](README.md) · [Node.js API](node/README_ZH.md) · [Python API](python/README.md) · [签名配置](docs/signing.md) · [测试](docs/testing.md)
 
 Keylet 将助记词保存在 macOS Keychain，通过 Touch ID 或 Mac 登录密码认证，再把派生密钥交给自己的 viem、ethers 或 Ed25519 代码使用。
 
-项目包含原生 macOS App `Keylet.app` 和 Node.js SDK `keylet`。SDK 需要密钥时，会在后台启动已签名的 App。
+项目包含原生 macOS App `Keylet.app`，以及 Node.js 和 Python SDK。SDK 需要密钥时，会在后台启动已签名的 App。
 
-私钥会按设计返回给调用方的 Node.js 进程。项目是本机密钥提供器，不是硬件钱包或远程签名服务。
+私钥会按设计返回给调用进程。请在进程内使用私钥，避免写入日志或持久化存储。
 
 **当前尚未发布。** 请按下文从源码构建 App 和 SDK，先使用无资金的测试钱包；项目尚未接受独立安全审计。
 
@@ -35,7 +35,7 @@ https://github.com/user-attachments/assets/3554d122-92ed-412b-bce7-057f6dcdcdff
 - 免密浏览钱包名称及缓存的默认 Ethereum / Solana 地址。在 **Derived account** 中认证核对地址。
 - 在钱包详情的 **Derived account** 中，按 index 或完整派生路径认证查看并复制 Ethereum / Solana 地址。
 - 认证并明确操作后显示助记词或删除钱包。
-- 通过简单的 Node.js API 返回 secp256k1 或 SLIP-0010 Ed25519 公私钥。
+- 通过 Node.js 和 Python API 返回 secp256k1 或 SLIP-0010 Ed25519 公私钥。
 
 适用于需要派生密钥的本机脚本和开发工具，助记词由 Keychain 保存，访问受 macOS 系统认证控制。
 
@@ -79,6 +79,8 @@ npm 包不包含 macOS App。使用 SDK 前，需要分别构建 App 和 SDK。
    在本机完成认证，示例会输出 `index: 2` 的 Ethereum 地址。另有 [ethers v5](node/examples/ethers-v5.ts)、[viem](node/examples/viem.ts)、[Ed25519](node/examples/ed25519.ts) 示例。
 
 正式发布后，在业务项目中运行 `npm install keylet` 即可安装 SDK，使用者无需自行编译。安装并打开完整 App，让 macOS 登记 `com.nivek3.keylet`，自动查找支持 App 改名。详见 [API 与故障排查](node/README_ZH.md)。
+
+Python 用户可以安装 macOS wheel，也可以从源码安装 SDK。详见 [Python 安装与 API 文档](python/README.md)。
 
 ## 工作方式
 
@@ -124,7 +126,7 @@ const keys = await getKeyPair({
 
 ## 开发与文档
 
-App 和原生桥接模块使用 Rust，SDK 使用少量 TypeScript。[`crates/`](crates/) 包含 App、密钥派生和 napi-rs 桥接；[`node/`](node/) 包含 SDK 与示例。
+[`crates/`](crates/) 包含 App、密钥派生、共享桥接和语言绑定。[`node/`](node/) 包含 TypeScript API 与示例。[`python/`](python/) 包含 Python 打包配置与测试。
 
 - [Node.js API 与故障排查](node/README_ZH.md)
 - [构建与签名](docs/signing.md)，包含 [macOS 手动发布 CI](docs/signing.md#manual-macos-release-ci)

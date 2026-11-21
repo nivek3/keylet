@@ -79,3 +79,61 @@ jobs:
         run: pnpm --dir node run build
       - name: Node integration tests
         run: pnpm --dir node test
+
+  python:
+    if: github.event.repository.private == false
+    name: Python wheel (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '14.0'
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          cache-bin: false
+          env-vars: MACOSX_DEPLOYMENT_TARGET
+      - name: Create isolated Python environments
+        run: |
+          python3 -m venv "$RUNNER_TEMP/keylet-build"
+          python3 -m venv "$RUNNER_TEMP/keylet-test"
+          "$RUNNER_TEMP/keylet-build/bin/python" -m pip install 'maturin>=1.9.4,<2'
+      - name: Build and smoke-test the release wheel
+        env:
+          WHEEL_ARCH: ${{ matrix.arch }}
+        run: |
+          build="$RUNNER_TEMP/keylet-build/bin"
+          test_python="$RUNNER_TEMP/keylet-test/bin/python"
+          "$build/maturin" build --release --interpreter "$build/python" --out "$RUNNER_TEMP/keylet-wheels"
+          cd "$RUNNER_TEMP"
+          "$test_python" -m pip install --no-deps --no-index keylet-wheels/*-cp310-abi3-macosx_14_0_"${WHEEL_ARCH}".whl
+          "$test_python" -I "$GITHUB_WORKSPACE/python/tests/test_installed.py"
+      - name: Test both curves and errors with a public helper
+        run: |
+          build="$RUNNER_TEMP/keylet-build/bin"
+          test_python="$RUNNER_TEMP/keylet-test/bin/python"
+          "$build/maturin" build --profile dev --interpreter "$build/python" --out "$RUNNER_TEMP/keylet-fixtures"
+          cd "$RUNNER_TEMP"
+          "$test_python" -m pip install --force-reinstall --no-deps --no-index keylet-fixtures/*.whl
+          "$test_python" "$GITHUB_WORKSPACE/python/tests/test_fixture.py"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: keylet-macos-python-${{ matrix.arch }}
+          path: ${{ runner.temp }}/keylet-wheels/*.whl
+          if-no-files-found: error

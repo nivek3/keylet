@@ -10,17 +10,12 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-wallet-crypto = { workspace = true }
+wallet-client.workspace = true
 
-core-foundation.workspace = true
-k256.workspace = true
-libc.workspace = true
 napi.workspace = true
 napi-derive.workspace = true
 serde_json.workspace = true
-solana-ed25519.workspace = true
 tokio.workspace = true
-zeroize.workspace = true
 
 [build-dependencies]
 napi-build.workspace = true

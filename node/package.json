@@ -1,10 +1,27 @@
 {
   "name": "keylet",
   "version": "0.1.0",
-  "type": "module",
-  "engines": {
-    "node": ">=22"
+  "description": "macOS Keychain-backed secp256k1 and Ed25519 keys for Node.js",
+  "keywords": [
+    "macos",
+    "keychain",
+    "ethereum",
+    "solana",
+    "secp256k1",
+    "ed25519",
+    "napi-rs"
+  ],
+  "homepage": "https://github.com/nivek3/keylet#readme",
+  "bugs": {
+    "url": "https://github.com/nivek3/keylet/issues"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nivek3/keylet.git",
+    "directory": "node"
+  },
+  "license": "MIT",
+  "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -18,6 +35,17 @@
     "README.md",
     "README_ZH.md",
     "LICENSE"
+  ],
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
   ],
   "scripts": {
     "build": "pnpm run build:bridge && tsc -p tsconfig.json",
@@ -34,33 +62,5 @@
     "viem": "^2.0.0",
     "ethers-v5": "npm:ethers@^5.7.2",
     "ethers-v6": "npm:ethers@^6.0.0"
-  },
-  "description": "macOS Keychain-backed secp256k1 and Ed25519 keys for Node.js",
-  "os": [
-    "darwin"
-  ],
-  "cpu": [
-    "arm64",
-    "x64"
-  ],
-  "packageManager": "pnpm@11.20.0",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/nivek3/keylet.git",
-    "directory": "node"
-  },
-  "homepage": "https://github.com/nivek3/keylet#readme",
-  "bugs": {
-    "url": "https://github.com/nivek3/keylet/issues"
-  },
-  "keywords": [
-    "macos",
-    "keychain",
-    "ethereum",
-    "solana",
-    "secp256k1",
-    "ed25519",
-    "napi-rs"
-  ]
+  }
 }

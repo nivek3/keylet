@@ -8,7 +8,7 @@ Keylet 将助记词保存在 macOS Keychain，通过 Touch ID 或 Mac 登录密�
 
 项目包含原生 macOS App `Keylet.app`，以及 Node.js 和 Python SDK。SDK 需要密钥时，会在后台启动已签名的 App。
 
-私钥会按设计返回给调用进程。请在进程内使用私钥，避免写入日志或持久化存储。
+SDK 的 `getKeyPair()` 会把派生私钥返回给调用进程。请在进程内使用私钥，避免写入日志或持久化存储。[本地签名](#本地签名)使用独立密钥，只返回签名和公开信息。
 
 **当前尚未发布。** 请按下文从源码构建 App 和 SDK，先使用无资金的测试钱包；项目尚未接受独立安全审计。
 
@@ -123,6 +123,21 @@ const keys = await getKeyPair({
 - 显式复制的内容在应用运行期间 60 秒后、阻塞认证前或正常退出时清理，前提是剪贴板仍为本应用最后一次写入。无法撤回其他软件保留的副本。
 - SDK 需要已登录的 macOS 会话完成交互认证，不面向浏览器、Linux/Windows 服务或无人值守任务。
 - 保留独立离线备份。BIP-39 附加口令会改变钱包，它不是 Mac 登录密码。不要在 issue 或日志中发送秘密。
+
+## 本地签名
+
+已签名的 macOS App 支持创建独立的 Ed25519 签名密钥。Keylet 在本机生成密钥，并将它存到专用 Keychain 条目。CLI 返回公钥地址和签名，普通钱包的 `getKeyPair()` 和助记词界面无法读取这类密钥。
+
+```sh
+keylet=./build/Keylet.app/Contents/MacOS/keylet
+"$keylet" signer create agent
+"$keylet" signer address agent
+"$keylet" signer sign agent < message.bin
+```
+
+`sign` 读取标准输入中的原始二进制内容（1 至 1232 字节），返回 Base58 地址和带 `0x` 前缀的 64 字节 Ed25519 签名。签 Solana 交易时，调用方提供序列化的交易 **message**。Keylet 签署输入的确切字节，由调用方组装并提交交易。
+
+签名会要求 macOS 认证，并在提示中显示密钥名、字节数和 SHA3-256 摘要。调用方需要在批准前确认内容。这条路径没有交易解析、额度或协议策略。签名密钥绑定本机，无导出和恢复入口。执行 `"$keylet" signer delete agent` 并认证会永久删除该密钥。
 
 ## 开发与文档
 

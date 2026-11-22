@@ -1,6 +1,7 @@
 mod catalog;
 mod macos;
 mod model;
+mod signer;
 mod theme;
 mod ui;
 
@@ -140,6 +141,11 @@ fn main_impl() -> Result<()> {
     }
     if args.len() == 2 && args[0] == "--bridge" {
         return bridge(&vault, args[1].parse().map_err(|_| Failure::Input)?);
+    }
+    if let [command, operation, name] = args.as_slice()
+        && command == "signer"
+    {
+        return signer::run(&vault, operation, name);
     }
     if args == ["list"] {
         macos::initialize_accessory()?;

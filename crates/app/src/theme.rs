@@ -218,13 +218,19 @@ pub(crate) fn wallet_choice(ui: &mut Ui, width: f32, choice: WalletChoice) -> eg
                 stroke,
             );
             painter.line(
-                vec![point(-7.0, 2.0), point(-7.0, 6.0), point(7.0, 6.0), point(7.0, 2.0)],
+                vec![
+                    point(-7.0, 2.0),
+                    point(-7.0, 6.0),
+                    point(7.0, 6.0),
+                    point(7.0, 2.0),
+                ],
                 stroke,
             );
         }
     }
     focus_ring(ui, card.response.rect, card.response.has_focus());
-    card.response.on_hover_cursor(egui::CursorIcon::PointingHand)
+    card.response
+        .on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 pub fn danger(ui: &mut Ui, label: &str) -> egui::Response {
     button(
@@ -522,7 +528,8 @@ mod tests {
                     .frame(Frame::new().inner_margin(16))
                     .show(ctx, |ui| {
                         let bounds = ui.max_rect();
-                        let width = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).floor();
+                        let width =
+                            ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).floor();
                         ui.horizontal(|ui| {
                             for choice in [WalletChoice::Create, WalletChoice::Import] {
                                 let card = wallet_choice(ui, width, choice);
@@ -695,12 +702,7 @@ mod tests {
                     .frame(Frame::new().inner_margin(16))
                     .show(ctx, |ui| {
                         let bounds = ui.max_rect();
-                        let row = wallet_row(
-                            ui,
-                            &"long-wallet-".repeat(5),
-                            true,
-                            width == 44.0,
-                        );
+                        let row = wallet_row(ui, &"long-wallet-".repeat(5), true, width == 44.0);
                         assert!(bounds.contains_rect(row.rect));
                         assert!(row.rect.width() <= width + 1.0);
                         assert!((row.rect.height() - 40.0).abs() < 0.5);

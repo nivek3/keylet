@@ -1,17 +1,27 @@
-use super::{revealed_card, Stage, WalletApp, MIN_RECOVERY_CARD_HEIGHT};
-use crate::{model::{WalletSummary, DEFAULT_ETH_PATH, DEFAULT_SOL_PATH}, theme};
+use super::{MIN_RECOVERY_CARD_HEIGHT, Stage, WalletApp, revealed_card};
+use crate::{
+    model::{DEFAULT_ETH_PATH, DEFAULT_SOL_PATH, WalletSummary},
+    theme,
+};
 use eframe::egui::{self, Align, Frame, Id, Layout, Margin};
 use std::time::Instant;
 
 fn wallet_search(ui: &mut egui::Ui, search: &mut String) -> egui::Response {
     let background = ui.interact(
-        egui::Rect::from_min_size(ui.available_rect_before_wrap().min, egui::vec2(ui.available_width(), 40.0)),
-        Id::new("wallet-search-background"), egui::Sense::CLICK,
+        egui::Rect::from_min_size(
+            ui.available_rect_before_wrap().min,
+            egui::vec2(ui.available_width(), 40.0),
+        ),
+        Id::new("wallet-search-background"),
+        egui::Sense::CLICK,
     );
     let field = theme::input_frame()
         .fill(theme::SEARCH)
         .corner_radius(6)
-        .inner_margin(Margin { left: 15, ..Margin::symmetric(8, 10) })
+        .inner_margin(Margin {
+            left: 15,
+            ..Margin::symmetric(8, 10)
+        })
         .show(ui, |ui| {
             ui.spacing_mut().interact_size.y = 18.0;
             ui.horizontal(|ui| {
@@ -25,9 +35,12 @@ fn wallet_search(ui: &mut egui::Ui, search: &mut String) -> egui::Response {
                         .margin(Margin::ZERO)
                         .desired_width(f32::INFINITY),
                 )
-            }).inner
+            })
+            .inner
         });
-    let focus_search = ui.data_mut(|data| data.remove_temp::<bool>(Id::new("focus-wallet-search"))).unwrap_or(false);
+    let focus_search = ui
+        .data_mut(|data| data.remove_temp::<bool>(Id::new("focus-wallet-search")))
+        .unwrap_or(false);
     if background.clicked() || focus_search {
         field.inner.request_focus();
     }
@@ -51,7 +64,9 @@ impl WalletApp {
         let selected = if self.stage == Stage::Wallets {
             self.selected_entry().map(|entry| entry.name.clone())
         } else {
-            self.selected_wallet.clone().or_else(|| self.selected_entry().map(|entry| entry.name.clone()))
+            self.selected_wallet
+                .clone()
+                .or_else(|| self.selected_entry().map(|entry| entry.name.clone()))
         };
         let mut clicked = None;
         for entry in self
@@ -142,22 +157,24 @@ impl WalletApp {
     }
 
     pub(super) fn wallet_controls(&mut self, ui: &mut egui::Ui) {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.scope(|ui| {
-                    ui.spacing_mut().interact_size = egui::vec2(28.0, 28.0);
-                    ui.spacing_mut().button_padding = egui::vec2(6.0, 4.0);
-                    ui.visuals_mut().widgets.inactive.weak_bg_fill = theme::TRANSPARENT;
-                    ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
-                    ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
-                    ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
-                    let more = ui.menu_button("•••", |ui| {
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.scope(|ui| {
+                ui.spacing_mut().interact_size = egui::vec2(28.0, 28.0);
+                ui.spacing_mut().button_padding = egui::vec2(6.0, 4.0);
+                ui.visuals_mut().widgets.inactive.weak_bg_fill = theme::TRANSPARENT;
+                ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                ui.visuals_mut().widgets.hovered.bg_stroke = egui::Stroke::NONE;
+                ui.visuals_mut().widgets.active.bg_stroke = egui::Stroke::NONE;
+                let more = ui
+                    .menu_button("•••", |ui| {
                         if ui.button("Settings…").clicked() {
                             self.wipe_draft();
                             self.message.clear();
                             self.authentication_minutes = match self.vault.authentication_ttl() {
                                 Ok(seconds) => (seconds / 60).to_string(),
                                 Err(_) => {
-                                    self.message = "Unable to read settings. Enter a duration to save.".into();
+                                    self.message =
+                                        "Unable to read settings. Enter a duration to save.".into();
                                     String::new()
                                 }
                             };
@@ -189,23 +206,32 @@ impl WalletApp {
                             );
                             ui.close();
                         }
-                    }).response;
-                    more.widget_info(|| egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button, ui.is_enabled(), "More actions",
-                    ));
-                    theme::focus_ring(ui, more.rect, more.has_focus());
-                    more.on_hover_text("More actions");
+                    })
+                    .response;
+                more.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        "More actions",
+                    )
                 });
-                if !self.wallets.is_empty() {
-                    let add = theme::toolbar_button(ui, "+");
-                    add.widget_info(|| egui::WidgetInfo::labeled(
-                        egui::WidgetType::Button, ui.is_enabled(), "Add wallet",
-                    ));
-                    if add.on_hover_text("Add wallet").clicked() {
-                        self.add_wallet();
-                    }
-                }
+                theme::focus_ring(ui, more.rect, more.has_focus());
+                more.on_hover_text("More actions");
             });
+            if !self.wallets.is_empty() {
+                let add = theme::toolbar_button(ui, "+");
+                add.widget_info(|| {
+                    egui::WidgetInfo::labeled(
+                        egui::WidgetType::Button,
+                        ui.is_enabled(),
+                        "Add wallet",
+                    )
+                });
+                if add.on_hover_text("Add wallet").clicked() {
+                    self.add_wallet();
+                }
+            }
+        });
     }
 
     fn wallet_sidebar(&mut self, ui: &mut egui::Ui) {
@@ -222,38 +248,44 @@ impl WalletApp {
 
     pub(super) fn wallet_browser(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, focused: bool) {
         let expanded = self.sidebar_visible;
-        egui::SidePanel::left(if expanded { "wallet-sidebar" } else { "wallet-rail" })
-            .show_separator_line(true)
-            .default_width(if expanded { 144.0 } else { 56.0 })
-            .width_range(if expanded {
-                144.0..=(ui.available_width() - 320.0).clamp(144.0, 320.0)
-            } else { 56.0..=56.0 })
-            .resizable(expanded)
-            .frame(
-                Frame::new()
-                    .fill(theme::CANVAS)
-                    .inner_margin(Margin::symmetric(if expanded { 10 } else { 6 }, 12)),
-            )
-            .show_inside(ui, |ui| {
-                if self.stage == Stage::Fatal {
-                    ui.disable();
-                }
-                if expanded {
-                    self.wallet_sidebar(ui);
-                } else {
-                    ui.vertical_centered(|ui| {
-                        if theme::search_button(ui).clicked() {
-                            self.sidebar_visible = true;
-                            ui.data_mut(|data| data.insert_temp(Id::new("focus-wallet-search"), true));
-                        }
-                    });
-                    ui.add_space(8.0);
-                    egui::ScrollArea::vertical()
-                        .id_salt("wallet-rail-list")
-                        .auto_shrink([false, false])
-                        .show(ui, |ui| self.wallet_rows(ui, true));
-                }
-            });
+        egui::SidePanel::left(if expanded {
+            "wallet-sidebar"
+        } else {
+            "wallet-rail"
+        })
+        .show_separator_line(true)
+        .default_width(if expanded { 144.0 } else { 56.0 })
+        .width_range(if expanded {
+            144.0..=(ui.available_width() - 320.0).clamp(144.0, 320.0)
+        } else {
+            56.0..=56.0
+        })
+        .resizable(expanded)
+        .frame(
+            Frame::new()
+                .fill(theme::CANVAS)
+                .inner_margin(Margin::symmetric(if expanded { 10 } else { 6 }, 12)),
+        )
+        .show_inside(ui, |ui| {
+            if self.stage == Stage::Fatal {
+                ui.disable();
+            }
+            if expanded {
+                self.wallet_sidebar(ui);
+            } else {
+                ui.vertical_centered(|ui| {
+                    if theme::search_button(ui).clicked() {
+                        self.sidebar_visible = true;
+                        ui.data_mut(|data| data.insert_temp(Id::new("focus-wallet-search"), true));
+                    }
+                });
+                ui.add_space(8.0);
+                egui::ScrollArea::vertical()
+                    .id_salt("wallet-rail-list")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| self.wallet_rows(ui, true));
+            }
+        });
         egui::CentralPanel::default()
             .frame(
                 Frame::new()
@@ -277,20 +309,29 @@ mod tests {
             theme::configure(&ctx);
             let mut search = String::new();
             let mut field_rect = egui::Rect::NOTHING;
-            let output = ctx.run(egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 160.0))),
-                ..Default::default()
-            }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    field_rect = ui.scope(|ui| wallet_search(ui, &mut search)).response.rect;
-                });
-            });
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width, 160.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        field_rect = ui.scope(|ui| wallet_search(ui, &mut search)).response.rect;
+                    });
+                },
+            );
             let pos = egui::pos2(field_rect.left() + 4.0, field_rect.center().y);
             let mut raw = egui::RawInput::default();
             raw.events.push(egui::Event::PointerMoved(pos));
             for pressed in [true, false] {
                 raw.events.push(egui::Event::PointerButton {
-                    pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE,
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
                 });
             }
             let _ = ctx.run(raw, |ctx| {
@@ -303,19 +344,30 @@ mod tests {
                     assert!(wallet_search(ui, &mut search).has_focus());
                 });
             });
-            let icon_x = |output: &egui::FullOutput| output.shapes.iter().find_map(|shape| {
-                match &shape.shape {
-                    egui::Shape::Circle(circle) if circle.radius == 4.5 => Some(circle.center.x),
-                    _ => None,
-                }
-            }).unwrap();
+            let icon_x = |output: &egui::FullOutput| {
+                output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| match &shape.shape {
+                        egui::Shape::Circle(circle) if circle.radius == 4.5 => {
+                            Some(circle.center.x)
+                        }
+                        _ => None,
+                    })
+                    .unwrap()
+            };
             assert!((icon_x(&output) - icon_x(&focused)).abs() < 0.5);
-            let typed = ctx.run(egui::RawInput {
-                events: vec![egui::Event::Text("wallet".into())],
-                ..Default::default()
-            }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| { wallet_search(ui, &mut search); });
-            });
+            let typed = ctx.run(
+                egui::RawInput {
+                    events: vec![egui::Event::Text("wallet".into())],
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        wallet_search(ui, &mut search);
+                    });
+                },
+            );
             assert!((icon_x(&output) - icon_x(&typed)).abs() < 0.5);
             assert_eq!(search, "wallet");
         }
@@ -330,34 +382,46 @@ mod tests {
         for expanded in [true, false, true] {
             let mut rows = Vec::new();
             let mut search_rect = egui::Rect::NOTHING;
-            let output = ctx.run(egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(if expanded { 144.0 } else { 56.0 }, 400.0),
-                )),
-                ..Default::default()
-            }, |ctx| {
-                egui::CentralPanel::default()
-                    .frame(Frame::new().inner_margin(Margin::symmetric(if expanded { 10 } else { 6 }, 12)))
-                    .show(ctx, |ui| {
-                        search_rect = if expanded {
-                            ui.scope(|ui| wallet_search(ui, &mut search)).response.rect
-                        } else {
-                            ui.vertical_centered(theme::search_button).response.rect
-                        };
-                        ui.add_space(8.0);
-                        for name in ["First wallet", "Second wallet", "Third wallet"] {
-                            rows.push(theme::wallet_row(ui, name, false, !expanded).rect);
-                            ui.add_space(2.0);
+            let output = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(if expanded { 144.0 } else { 56.0 }, 400.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .frame(
+                            Frame::new()
+                                .inner_margin(Margin::symmetric(if expanded { 10 } else { 6 }, 12)),
+                        )
+                        .show(ctx, |ui| {
+                            search_rect = if expanded {
+                                ui.scope(|ui| wallet_search(ui, &mut search)).response.rect
+                            } else {
+                                ui.vertical_centered(theme::search_button).response.rect
+                            };
+                            ui.add_space(8.0);
+                            for name in ["First wallet", "Second wallet", "Third wallet"] {
+                                rows.push(theme::wallet_row(ui, name, false, !expanded).rect);
+                                ui.add_space(2.0);
+                            }
+                        });
+                },
+            );
+            let circle_x = |radius| {
+                output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| match &shape.shape {
+                        egui::Shape::Circle(circle) if circle.radius == radius => {
+                            Some(circle.center.x)
                         }
-                    });
-            });
-            let circle_x = |radius| output.shapes.iter().find_map(|shape| {
-                match &shape.shape {
-                    egui::Shape::Circle(circle) if circle.radius == radius => Some(circle.center.x),
-                    _ => None,
-                }
-            }).unwrap();
+                        _ => None,
+                    })
+                    .unwrap()
+            };
             assert!((circle_x(4.5) - circle_x(14.0)).abs() < 0.5);
             assert!((search_rect.height() - 40.0).abs() < 0.5);
             for row in &rows {
@@ -365,7 +429,10 @@ mod tests {
             }
             if let Some(expected) = &expanded_rows {
                 for (actual, expected) in rows.iter().zip(expected) {
-                    assert!((actual.top() - expected.top()).abs() < 0.5, "expanded={expanded}, actual={actual:?}, expected={expected:?}");
+                    assert!(
+                        (actual.top() - expected.top()).abs() < 0.5,
+                        "expanded={expanded}, actual={actual:?}, expected={expected:?}"
+                    );
                     assert!((actual.height() - expected.height()).abs() < 0.5);
                 }
             } else {
@@ -380,20 +447,31 @@ mod tests {
         ctx.enable_accesskit();
         let mut search = String::new();
         for expanded in [false, true] {
-            let output = ctx.run(egui::RawInput { focused: true, ..Default::default() }, |ctx| {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    if expanded {
-                        assert!(wallet_search(ui, &mut search).has_focus());
-                    } else {
-                        theme::search_button(ui);
-                        ui.data_mut(|data| data.insert_temp(Id::new("focus-wallet-search"), true));
-                    }
-                });
-            });
+            let output = ctx.run(
+                egui::RawInput {
+                    focused: true,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        if expanded {
+                            assert!(wallet_search(ui, &mut search).has_focus());
+                        } else {
+                            theme::search_button(ui);
+                            ui.data_mut(|data| {
+                                data.insert_temp(Id::new("focus-wallet-search"), true)
+                            });
+                        }
+                    });
+                },
+            );
             let tree = output.platform_output.accesskit_update.unwrap();
             assert!(tree.nodes.iter().any(|(id, _)| *id == tree.focus));
             if expanded {
-                assert_eq!(ctx.memory(|memory| memory.focused()), Some(Id::new("wallet-search")));
+                assert_eq!(
+                    ctx.memory(|memory| memory.focused()),
+                    Some(Id::new("wallet-search"))
+                );
             }
         }
     }

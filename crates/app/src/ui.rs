@@ -16,11 +16,9 @@ use std::{
 };
 use zeroize::{Zeroize, Zeroizing};
 
-const SEED_CLIPBOARD_NOTICE: &str =
-    "Clears after 60s while open. Other apps may keep a copy.";
+const SEED_CLIPBOARD_NOTICE: &str = "Clears after 60s while open. Other apps may keep a copy.";
 const MIN_RECOVERY_CARD_HEIGHT: f32 = 184.0;
-const DELETE_INDEX_WARNING: &str =
-    "A wallet was deleted from Keychain, but the local name list could not be updated. Use Sync from Keychain to repair it.";
+const DELETE_INDEX_WARNING: &str = "A wallet was deleted from Keychain, but the local name list could not be updated. Use Sync from Keychain to repair it.";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Stage {
@@ -39,10 +37,16 @@ enum Stage {
 }
 impl Stage {
     fn blocks_clipboard(self) -> bool {
-        matches!(self, Self::Secrets | Self::Reveal | Self::Backup | Self::Confirm | Self::ViewPhrase)
+        matches!(
+            self,
+            Self::Secrets | Self::Reveal | Self::Backup | Self::Confirm | Self::ViewPhrase
+        )
     }
     fn has_draft(self) -> bool {
-        matches!(self, Self::Details | Self::Secrets | Self::Reveal | Self::Backup | Self::Confirm)
+        matches!(
+            self,
+            Self::Details | Self::Secrets | Self::Reveal | Self::Backup | Self::Confirm
+        )
     }
     fn previous(self) -> Option<Self> {
         match self {
@@ -189,33 +193,51 @@ fn authentication_seconds(minutes: &str) -> Result<u64> {
     if minutes.is_empty() || !minutes.bytes().all(|byte| byte.is_ascii_digit()) {
         return Err(Failure::Input);
     }
-    minutes.parse::<u64>().ok().and_then(|value| value.checked_mul(60)).ok_or(Failure::Input)
+    minutes
+        .parse::<u64>()
+        .ok()
+        .and_then(|value| value.checked_mul(60))
+        .ok_or(Failure::Input)
 }
 
 fn curve_selector(ui: &mut egui::Ui, curve: &mut Curve) -> egui::Response {
-    egui::Frame::new().fill(theme::SEARCH).corner_radius(8).inner_margin(3)
+    egui::Frame::new()
+        .fill(theme::SEARCH)
+        .corner_radius(8)
+        .inner_margin(3)
         .show(ui, |ui| {
             ui.spacing_mut().item_spacing.x = 2.0;
             ui.horizontal(|ui| {
-                for (value, label) in [
-                    (Curve::Secp256k1, "Ethereum"),
-                    (Curve::Ed25519, "Solana"),
-                ] {
+                for (value, label) in [(Curve::Secp256k1, "Ethereum"), (Curve::Ed25519, "Solana")] {
                     let selected = *curve == value;
-                    let response = ui.add(egui::Button::new(label).selected(selected)
-                        .min_size(egui::vec2(110.0, 28.0))
-                        .fill(if selected { theme::SELECTED } else { theme::TRANSPARENT })
-                        .stroke(egui::Stroke::NONE).corner_radius(6));
-                    response.widget_info(|| egui::WidgetInfo::selected(
-                        egui::WidgetType::RadioButton, ui.is_enabled(), selected, label,
-                    ));
+                    let response = ui.add(
+                        egui::Button::new(label)
+                            .selected(selected)
+                            .min_size(egui::vec2(110.0, 28.0))
+                            .fill(if selected {
+                                theme::SELECTED
+                            } else {
+                                theme::TRANSPARENT
+                            })
+                            .stroke(egui::Stroke::NONE)
+                            .corner_radius(6),
+                    );
+                    response.widget_info(|| {
+                        egui::WidgetInfo::selected(
+                            egui::WidgetType::RadioButton,
+                            ui.is_enabled(),
+                            selected,
+                            label,
+                        )
+                    });
                     theme::focus_ring(ui, response.rect, response.has_focus());
                     if response.clicked() {
                         *curve = value;
                     }
                 }
             });
-        }).response
+        })
+        .response
 }
 
 fn recovery_words(ui: &mut egui::Ui, phrase: &str, min_height: f32) {
@@ -259,12 +281,16 @@ fn revealed_card(ui: &mut egui::Ui, phrase: &str, height: f32) -> egui::Response
     let padding = egui::Margin::symmetric(10, 12);
     let inset = padding.sum();
     let width = ui.available_width();
-    egui::Frame::new().fill(theme::SOFT).corner_radius(theme::RECOVERY_BODY_CORNERS).inner_margin(padding)
+    egui::Frame::new()
+        .fill(theme::SOFT)
+        .corner_radius(theme::RECOVERY_BODY_CORNERS)
+        .inner_margin(padding)
         .show(ui, |ui| {
             ui.set_width((width - inset.x).max(0.0));
             ui.set_min_height((height - inset.y).max(0.0));
             recovery_words(ui, phrase, MIN_RECOVERY_CARD_HEIGHT - inset.y);
-        }).response
+        })
+        .response
 }
 
 fn recovery_panel(ui: &mut egui::Ui, card: impl FnOnce(&mut egui::Ui)) {
@@ -272,29 +298,43 @@ fn recovery_panel(ui: &mut egui::Ui, card: impl FnOnce(&mut egui::Ui)) {
         ui.spacing_mut().item_spacing.y = 0.0;
         egui::Frame::new()
             .fill(theme::WARNING_SOFT)
-            .corner_radius(egui::CornerRadius { nw: 10, ne: 10, sw: 0, se: 0 })
+            .corner_radius(egui::CornerRadius {
+                nw: 10,
+                ne: 10,
+                sw: 0,
+                se: 0,
+            })
             .inner_margin(egui::Margin::symmetric(10, 4))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.spacing_mut().interact_size.y = 16.0;
                 ui.horizontal(|ui| {
-                    let (icon, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
+                    let (icon, _) =
+                        ui.allocate_exact_size(egui::vec2(16.0, 16.0), egui::Sense::hover());
                     let center = icon.center();
                     let painter = ui.painter();
                     painter.rect_stroke(
-                        egui::Rect::from_center_size(center - egui::vec2(0.0, 2.0), egui::vec2(8.0, 9.0)),
+                        egui::Rect::from_center_size(
+                            center - egui::vec2(0.0, 2.0),
+                            egui::vec2(8.0, 9.0),
+                        ),
                         3,
                         egui::Stroke::new(1.5_f32, theme::WARNING_INK),
                         egui::StrokeKind::Inside,
                     );
                     painter.rect_filled(
-                        egui::Rect::from_center_size(center + egui::vec2(0.0, 3.0), egui::vec2(12.0, 8.0)),
+                        egui::Rect::from_center_size(
+                            center + egui::vec2(0.0, 3.0),
+                            egui::vec2(12.0, 8.0),
+                        ),
                         2,
                         theme::WARNING_INK,
                     );
                     ui.colored_label(
                         theme::WARNING_INK,
-                        egui::RichText::new("Keep your screen private.").size(13.0).strong(),
+                        egui::RichText::new("Keep your screen private.")
+                            .size(13.0)
+                            .strong(),
                     );
                 });
             });
@@ -370,7 +410,11 @@ fn discard_wallet_dialog(ctx: &egui::Context, creating: bool) -> Option<bool> {
         .show(ctx, |ui| {
             ui.set_width(320.0);
             ui.vertical_centered(|ui| {
-                ui.heading(if creating { "Discard wallet setup?" } else { "Discard import?" });
+                ui.heading(if creating {
+                    "Discard wallet setup?"
+                } else {
+                    "Discard import?"
+                });
             });
             ui.add_space(18.0);
             ui.horizontal(|ui| {
@@ -384,7 +428,11 @@ fn discard_wallet_dialog(ctx: &egui::Context, creating: bool) -> Option<bool> {
                 });
             });
         });
-    if choice.is_none() && response.should_close() { Some(false) } else { choice }
+    if choice.is_none() && response.should_close() {
+        Some(false)
+    } else {
+        choice
+    }
 }
 
 fn page_scroll(stage: Stage) -> egui::ScrollArea {
@@ -422,7 +470,8 @@ impl WalletApp {
         self.prepare_authentication();
         self.secure_input.set(true)?;
         let context = macos::AuthContext::new(
-            &format!("show the seed phrase for wallet \"{name}\""), false,
+            &format!("show the seed phrase for wallet \"{name}\""),
+            false,
         );
         let mut wallet = match self.vault.read(name, &context) {
             Ok(wallet) => wallet,
@@ -431,7 +480,8 @@ impl WalletApp {
                 return Err(error);
             }
         };
-        self.revealed.show(std::mem::take(&mut wallet.mnemonic), Instant::now());
+        self.revealed
+            .show(std::mem::take(&mut wallet.mnemonic), Instant::now());
         self.name = name.to_owned();
         self.message.clear();
         Ok(())
@@ -481,9 +531,9 @@ impl WalletApp {
             Ok(entries) => self.wallets = entries,
             Err(error) => {
                 self.message = format!(
-                "Unable to load the local name list ({}). Use Sync from Keychain to rebuild it.",
-                error.code()
-            )
+                    "Unable to load the local name list ({}). Use Sync from Keychain to rebuild it.",
+                    error.code()
+                )
             }
         }
     }
@@ -496,7 +546,8 @@ impl WalletApp {
                 self.message.clear();
             }
             Err(Failure::CatalogChanged) => {
-                self.message = "The wallet list changed during sync. Run Sync from Keychain again.".into();
+                self.message =
+                    "The wallet list changed during sync. Run Sync from Keychain again.".into();
             }
             Err(error) => {
                 self.message = format!(
@@ -626,7 +677,8 @@ impl WalletApp {
         match self.stage {
             Stage::Welcome => {
                 let mut choice = None;
-                let card_width = ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).floor();
+                let card_width =
+                    ((ui.available_width() - ui.spacing().item_spacing.x) / 2.0).floor();
                 ui.horizontal(|ui| {
                     if theme::wallet_choice(ui, card_width, WalletChoice::Create).clicked() {
                         choice = Some(WalletChoice::Create);
@@ -659,10 +711,16 @@ impl WalletApp {
                 if theme::primary(ui, "Save").clicked() {
                     match authentication_seconds(&self.authentication_minutes) {
                         Ok(seconds) => match self.vault.set_authentication_ttl(seconds) {
-                                Ok(()) => { self.message.clear(); self.back(); }
-                                Err(_) => self.message = "Unable to save settings.".into(),
-                            },
-                        Err(_) => self.message = "Enter a valid whole number of minutes (0 or greater).".into(),
+                            Ok(()) => {
+                                self.message.clear();
+                                self.back();
+                            }
+                            Err(_) => self.message = "Unable to save settings.".into(),
+                        },
+                        Err(_) => {
+                            self.message =
+                                "Enter a valid whole number of minutes (0 or greater).".into()
+                        }
                     }
                 }
             }
@@ -723,12 +781,7 @@ impl WalletApp {
                 }
                 if focused {
                     if !self.creating {
-                        secret_field(
-                            ui,
-                            "English seed phrase",
-                            "mnemonic",
-                            &mut self.mnemonic,
-                        );
+                        secret_field(ui, "English seed phrase", "mnemonic", &mut self.mnemonic);
                     }
                     secret_field(
                         ui,
@@ -807,8 +860,7 @@ impl WalletApp {
                 } else {
                     ui.label("Seed phrase hidden while this window is inactive.");
                 }
-                let (next, cancel) =
-                    theme::actions(ui, "Cancel", "Continue");
+                let (next, cancel) = theme::actions(ui, "Cancel", "Continue");
                 if next && focused {
                     self.message.clear();
                     self.clipboard.clear();
@@ -831,10 +883,17 @@ impl WalletApp {
                 let (save, skip, cancel) = theme::backup_actions(ui);
                 if (save || skip) && focused {
                     let confirmation = if skip {
-                        self.pending.as_mut().ok_or(Failure::Input).map(|p| p.skip_backup())
+                        self.pending
+                            .as_mut()
+                            .ok_or(Failure::Input)
+                            .map(|p| p.skip_backup())
                     } else {
-                        self.backup_confirmation.phrase()
-                            .and_then(|phrase| self.pending.as_mut().ok_or(Failure::Input)?.confirm(&phrase))
+                        self.backup_confirmation.phrase().and_then(|phrase| {
+                            self.pending
+                                .as_mut()
+                                .ok_or(Failure::Input)?
+                                .confirm(&phrase)
+                        })
                     };
                     let result = confirmation.and_then(|_| self.save());
                     if let Err(e) = result {
@@ -850,10 +909,7 @@ impl WalletApp {
                 }
             }
             Stage::Success => {
-                theme::hint(
-                    ui,
-                    &format!("{} · {}", self.curve.name(), self.path),
-                );
+                theme::hint(ui, &format!("{} · {}", self.curve.name(), self.path));
                 theme::label(ui, "Public key");
                 ui.label(egui::RichText::new(&self.public_key).monospace());
                 if self.curve == Curve::Secp256k1 {
@@ -900,12 +956,19 @@ impl WalletApp {
             Stage::Delete => {
                 if let Some(plan) = &mut self.deletion {
                     if plan.deleted > 0 {
-                        ui.label(format!("{} remaining · {} deleted", plan.remaining.len(), plan.deleted));
+                        ui.label(format!(
+                            "{} remaining · {} deleted",
+                            plan.remaining.len(),
+                            plan.deleted
+                        ));
                     }
                     for name in &plan.remaining {
                         ui.label(egui::RichText::new(name).monospace());
                     }
-                    theme::hint(ui, "Each wallet requires authentication. If you stop, earlier deletions still apply.");
+                    theme::hint(
+                        ui,
+                        "Each wallet requires authentication. If you stop, earlier deletions still apply.",
+                    );
                     ui.checkbox(
                         &mut plan.confirmed,
                         "I have an offline backup and understand deletion is permanent.",
@@ -966,7 +1029,12 @@ impl WalletApp {
                             ctx.send_viewport_cmd(ViewportCommand::Close);
                         }
                         Ok(()) => self.return_to_wallets(),
-                        Err(error) => self.message = format!("Deletion stopped ({}). Review the remaining wallets before trying again.", error.code()),
+                        Err(error) => {
+                            self.message = format!(
+                                "Deletion stopped ({}). Review the remaining wallets before trying again.",
+                                error.code()
+                            )
+                        }
                     }
                     if index_failed && !self.cli_delete {
                         if !self.message.is_empty() {
@@ -1000,25 +1068,28 @@ impl WalletApp {
             ui.colored_label(theme::DANGER_INK, &self.message);
             ui.add_space(8.0);
         }
-        page_scroll(self.stage)
-            .show(ui, |ui| {
-                let max_width = if self.stage == Stage::ViewPhrase { 440.0 } else { 420.0 };
-                let width = ui.available_width().min(max_width);
-                ui.vertical_centered(|ui| {
-                    ui.set_width(width);
-                    ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-                        if self.stage != Stage::Wallets {
-                            let wallet = match self.stage {
-                                Stage::ViewPhrase | Stage::Success => Some(self.name.as_str()),
-                                Stage::Secrets if self.cli_import => Some(self.name.as_str()),
-                                _ => None,
-                            };
-                            theme::page_header(ui, self.title(), wallet);
-                        }
-                        self.content(ui, ctx, focused && self.pending_wallet_selection.is_none());
-                    });
+        page_scroll(self.stage).show(ui, |ui| {
+            let max_width = if self.stage == Stage::ViewPhrase {
+                440.0
+            } else {
+                420.0
+            };
+            let width = ui.available_width().min(max_width);
+            ui.vertical_centered(|ui| {
+                ui.set_width(width);
+                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                    if self.stage != Stage::Wallets {
+                        let wallet = match self.stage {
+                            Stage::ViewPhrase | Stage::Success => Some(self.name.as_str()),
+                            Stage::Secrets if self.cli_import => Some(self.name.as_str()),
+                            _ => None,
+                        };
+                        theme::page_header(ui, self.title(), wallet);
+                    }
+                    self.content(ui, ctx, focused && self.pending_wallet_selection.is_none());
                 });
             });
+        });
     }
 }
 
@@ -1038,10 +1109,11 @@ impl eframe::App for WalletApp {
             self.revealed.clear();
         }
         let phrase_visible = self.revealed.visible(Instant::now(), focused).is_some();
-        let contains_secrets = phrase_visible || matches!(
-            self.stage,
-            Stage::Secrets | Stage::Reveal | Stage::Backup | Stage::Confirm
-        );
+        let contains_secrets = phrase_visible
+            || matches!(
+                self.stage,
+                Stage::Secrets | Stage::Reveal | Stage::Backup | Stage::Confirm
+            );
         if let Err(error) = self.secure_input.set(focused && contains_secrets) {
             self.wipe_draft();
             self.cli_result.set(Some(Err(error)));
@@ -1053,21 +1125,37 @@ impl eframe::App for WalletApp {
         if !self.cli_import && !self.cli_delete {
             egui::TopBottomPanel::top("navigation")
                 .show_separator_line(false)
-                .frame(egui::Frame::new()
-                    .fill(theme::CANVAS)
-                    .inner_margin(egui::Margin::symmetric(12, 6)))
+                .frame(
+                    egui::Frame::new()
+                        .fill(theme::CANVAS)
+                        .inner_margin(egui::Margin::symmetric(12, 6)),
+                )
                 .show(ctx, |ui| {
                     ui.horizontal(|ui| {
                         ui.set_min_height(28.0);
                         ui.spacing_mut().item_spacing.x = 6.0;
                         let can_back = self.stage.previous().is_some()
                             || self.stage == Stage::Wallets && !self.sidebar_visible;
-                        if ui.add_enabled_ui(can_back, |ui| theme::navigation_button(ui, "Back", None))
-                            .inner.clicked() {
+                        if ui
+                            .add_enabled_ui(can_back, |ui| {
+                                theme::navigation_button(ui, "Back", None)
+                            })
+                            .inner
+                            .clicked()
+                        {
                             self.navigate_back();
                         }
-                        if theme::navigation_button(ui,
-                            if self.sidebar_visible { "Hide sidebar" } else { "Show sidebar" }, Some(self.sidebar_visible)).clicked() {
+                        if theme::navigation_button(
+                            ui,
+                            if self.sidebar_visible {
+                                "Hide sidebar"
+                            } else {
+                                "Show sidebar"
+                            },
+                            Some(self.sidebar_visible),
+                        )
+                        .clicked()
+                        {
                             self.sidebar_visible = !self.sidebar_visible;
                         }
                         if self.stage == Stage::Wallets {
@@ -1079,15 +1167,13 @@ impl eframe::App for WalletApp {
                 });
         }
         egui::CentralPanel::default()
-            .frame(
-                egui::Frame::new()
-                    .fill(theme::CANVAS)
-                    .inner_margin(if self.cli_import || self.cli_delete {
-                        theme::PAGE_MARGIN
-                    } else {
-                        egui::Margin::ZERO
-                    }),
-            )
+            .frame(egui::Frame::new().fill(theme::CANVAS).inner_margin(
+                if self.cli_import || self.cli_delete {
+                    theme::PAGE_MARGIN
+                } else {
+                    egui::Margin::ZERO
+                },
+            ))
             .show(ctx, |ui| {
                 if self.cli_import || self.cli_delete {
                     self.page_content(ui, ctx, focused);
@@ -1106,7 +1192,8 @@ impl eframe::App for WalletApp {
                 None => {}
             }
         }
-        self.clipboard_gate.set_blocked(self.stage.blocks_clipboard());
+        self.clipboard_gate
+            .set_blocked(self.stage.blocks_clipboard());
     }
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.wipe_draft();
@@ -1185,7 +1272,8 @@ pub fn run(
         options,
         Box::new(move |cc| {
             theme::configure(&cc.egui_ctx);
-            cc.egui_ctx.send_viewport_cmd(ViewportCommand::SetTheme(egui::SystemTheme::Light));
+            cc.egui_ctx
+                .send_viewport_cmd(ViewportCommand::SetTheme(egui::SystemTheme::Light));
             let color = theme::CANVAS;
             let _ = macos::configure_window_background([color.r(), color.g(), color.b()]);
             Ok(Box::new(app))
@@ -1207,7 +1295,10 @@ mod tests {
         theme::configure(&ctx);
         let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(304.0, 344.0));
         let render_page = |stage, scroll| {
-            let mut input = egui::RawInput { screen_rect: Some(screen), ..Default::default() };
+            let mut input = egui::RawInput {
+                screen_rect: Some(screen),
+                ..Default::default()
+            };
             if scroll {
                 input.events.extend([
                     Event::PointerMoved(egui::pos2(150.0, 200.0)),
@@ -1250,23 +1341,30 @@ mod tests {
             for target in [None, Some(Curve::Ed25519), Some(Curve::Secp256k1)] {
                 let mut input = egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO, egui::vec2(width + 32.0, 100.0),
+                        egui::Pos2::ZERO,
+                        egui::vec2(width + 32.0, 100.0),
                     )),
                     ..Default::default()
                 };
                 if let Some(target) = target {
-                    let pos = egui::pos2(bounds.left() + bounds.width()
-                        * if target == Curve::Ed25519 { 0.75 } else { 0.25 }, bounds.center().y);
+                    let pos = egui::pos2(
+                        bounds.left()
+                            + bounds.width() * if target == Curve::Ed25519 { 0.75 } else { 0.25 },
+                        bounds.center().y,
+                    );
                     input.events.push(egui::Event::PointerMoved(pos));
                     for pressed in [true, false] {
                         input.events.push(egui::Event::PointerButton {
-                            pos, button: egui::PointerButton::Primary,
-                            pressed, modifiers: egui::Modifiers::NONE,
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: egui::Modifiers::NONE,
                         });
                     }
                 }
                 let _ = ctx.run(input, |ctx| {
-                    egui::CentralPanel::default().frame(egui::Frame::new().inner_margin(16))
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::new().inner_margin(16))
                         .show(ctx, |ui| {
                             bounds = curve_selector(ui, &mut curve).rect;
                             assert!(ui.max_rect().contains_rect(bounds));
@@ -1296,9 +1394,14 @@ mod tests {
             confirmation.words[index].push_str(phrase.split_whitespace().nth(index).unwrap());
         }
         assert_eq!(confirmation.order, order);
-        let mut pending = PendingWallet::new(StoredWallet {
-            version: 1, mnemonic: phrase.into(), passphrase: String::new(),
-        }, true);
+        let mut pending = PendingWallet::new(
+            StoredWallet {
+                version: 1,
+                mnemonic: phrase.into(),
+                passphrase: String::new(),
+            },
+            true,
+        );
         assert!(pending.for_save().is_err());
         assert!(pending.confirm(&confirmation.phrase().unwrap()).is_ok());
         assert!(pending.for_save().is_ok());
@@ -1321,25 +1424,38 @@ mod tests {
             theme::configure(&ctx);
             let mut confirmation = BackupConfirmation::default();
             confirmation.shuffle();
-            let _ = ctx.run(egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO, egui::vec2(width + 48.0, 360.0),
-                )),
-                ..Default::default()
-            }, |ctx| {
-                egui::CentralPanel::default().frame(egui::Frame::new().inner_margin(24))
-                    .show(ctx, |ui| {
-                        let bounds = ui.max_rect();
-                        theme::page_header(ui, "Verify backup", None);
-                        ui.label("Match each word to its number.");
-                        ui.add_space(8.0);
-                        let grid = ui.scope(|ui| backup_fields(ui, &mut confirmation));
-                        assert!(bounds.contains_rect(grid.response.rect), "width={width}, grid={:?}, bounds={bounds:?}", grid.response.rect);
-                        ui.add_space(16.0);
-                        let actions = ui.scope(theme::backup_actions);
-                        assert!(bounds.contains_rect(actions.response.rect), "width={width}, actions={:?}, bounds={bounds:?}", actions.response.rect);
-                    });
-            });
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(width + 48.0, 360.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::new().inner_margin(24))
+                        .show(ctx, |ui| {
+                            let bounds = ui.max_rect();
+                            theme::page_header(ui, "Verify backup", None);
+                            ui.label("Match each word to its number.");
+                            ui.add_space(8.0);
+                            let grid = ui.scope(|ui| backup_fields(ui, &mut confirmation));
+                            assert!(
+                                bounds.contains_rect(grid.response.rect),
+                                "width={width}, grid={:?}, bounds={bounds:?}",
+                                grid.response.rect
+                            );
+                            ui.add_space(16.0);
+                            let actions = ui.scope(theme::backup_actions);
+                            assert!(
+                                bounds.contains_rect(actions.response.rect),
+                                "width={width}, actions={:?}, bounds={bounds:?}",
+                                actions.response.rect
+                            );
+                        });
+                },
+            );
         }
     }
 
@@ -1347,10 +1463,14 @@ mod tests {
     fn toolbar_back_follows_creation_steps_and_returns_auxiliary_pages_to_wallets() {
         use super::Stage;
         for (from, to) in [
-            (Stage::Details, Stage::Welcome), (Stage::Secrets, Stage::Details),
-            (Stage::Reveal, Stage::Secrets), (Stage::Backup, Stage::Reveal),
-            (Stage::Confirm, Stage::Backup), (Stage::ViewPhrase, Stage::Wallets),
-            (Stage::Settings, Stage::Wallets), (Stage::Delete, Stage::Wallets),
+            (Stage::Details, Stage::Welcome),
+            (Stage::Secrets, Stage::Details),
+            (Stage::Reveal, Stage::Secrets),
+            (Stage::Backup, Stage::Reveal),
+            (Stage::Confirm, Stage::Backup),
+            (Stage::ViewPhrase, Stage::Wallets),
+            (Stage::Settings, Stage::Wallets),
+            (Stage::Delete, Stage::Wallets),
         ] {
             assert!(from.previous() == Some(to));
         }
@@ -1363,19 +1483,41 @@ mod tests {
             assert_eq!(super::authentication_seconds(input).unwrap(), seconds);
         }
         let largest = u64::MAX / 60;
-        assert_eq!(super::authentication_seconds(&largest.to_string()).unwrap(), largest * 60);
-        for input in ["".to_owned(), "-1".into(), "1.5".into(), "abc".into(), (largest + 1).to_string()] {
+        assert_eq!(
+            super::authentication_seconds(&largest.to_string()).unwrap(),
+            largest * 60
+        );
+        for input in [
+            "".to_owned(),
+            "-1".into(),
+            "1.5".into(),
+            "abc".into(),
+            (largest + 1).to_string(),
+        ] {
             assert!(super::authentication_seconds(&input).is_err());
         }
     }
     use super::*;
     #[test]
     fn only_unfinished_wallet_setup_requires_discard_confirmation() {
-        for stage in [Stage::Details, Stage::Secrets, Stage::Reveal, Stage::Backup, Stage::Confirm] {
+        for stage in [
+            Stage::Details,
+            Stage::Secrets,
+            Stage::Reveal,
+            Stage::Backup,
+            Stage::Confirm,
+        ] {
             assert!(stage.has_draft());
         }
-        for stage in [Stage::Welcome, Stage::Wallets, Stage::Settings, Stage::Success,
-            Stage::ViewPhrase, Stage::Delete, Stage::Fatal] {
+        for stage in [
+            Stage::Welcome,
+            Stage::Wallets,
+            Stage::Settings,
+            Stage::Success,
+            Stage::ViewPhrase,
+            Stage::Delete,
+            Stage::Fatal,
+        ] {
             assert!(!stage.has_draft());
         }
     }
@@ -1387,31 +1529,54 @@ mod tests {
             ctx.style_mut(|style| style.animation_time = 0.0);
             let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 400.0));
             let render = || {
-                ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| {
-                    discard_wallet_dialog(ctx, creating);
-                })
+                ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(screen),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        discard_wallet_dialog(ctx, creating);
+                    },
+                )
             };
             let _ = render();
             let output = render();
             let button = |fill| {
-                output.shapes.iter().find_map(|shape| match &shape.shape {
-                    egui::Shape::Rect(rect) if rect.fill == fill => Some(rect.rect),
-                    _ => None,
-                }).expect("dialog action should be visible")
+                output
+                    .shapes
+                    .iter()
+                    .find_map(|shape| match &shape.shape {
+                        egui::Shape::Rect(rect) if rect.fill == fill => Some(rect.rect),
+                        _ => None,
+                    })
+                    .expect("dialog action should be visible")
             };
             let keep = button(theme::CONTROL);
             let discard = button(theme::DANGER);
             let center = screen.center().x;
-            assert!((keep.left() - (center - 160.0)).abs() < 1.0, "{title}: {keep:?}");
-            assert!((discard.right() - (center + 160.0)).abs() < 1.0, "{title}: {discard:?}");
+            assert!(
+                (keep.left() - (center - 160.0)).abs() < 1.0,
+                "{title}: {keep:?}"
+            );
+            assert!(
+                (discard.right() - (center + 160.0)).abs() < 1.0,
+                "{title}: {discard:?}"
+            );
             assert!((keep.center().y - discard.center().y).abs() < 1.0);
-            let title_x = output.shapes.iter().find_map(|shape| match &shape.shape {
-                egui::Shape::Text(text) if text.galley.text() == title => {
-                    Some(text.pos.x + text.galley.rect.center().x)
-                }
-                _ => None,
-            }).expect("dialog title should be visible");
-            assert!((title_x - center).abs() < 1.0, "{title}: center x is {title_x}");
+            let title_x = output
+                .shapes
+                .iter()
+                .find_map(|shape| match &shape.shape {
+                    egui::Shape::Text(text) if text.galley.text() == title => {
+                        Some(text.pos.x + text.galley.rect.center().x)
+                    }
+                    _ => None,
+                })
+                .expect("dialog title should be visible");
+            assert!(
+                (title_x - center).abs() < 1.0,
+                "{title}: center x is {title_x}"
+            );
         }
     }
     #[test]
@@ -1422,12 +1587,18 @@ mod tests {
                 let mut input = egui::RawInput::default();
                 if escape {
                     input.events.push(egui::Event::Key {
-                        key: egui::Key::Escape, physical_key: None, pressed: true,
-                        repeat: false, modifiers: egui::Modifiers::NONE,
+                        key: egui::Key::Escape,
+                        physical_key: None,
+                        pressed: true,
+                        repeat: false,
+                        modifiers: egui::Modifiers::NONE,
                     });
                 }
                 let _ = ctx.run(input, |ctx| {
-                    assert_eq!(discard_wallet_dialog(ctx, creating), if escape { Some(false) } else { None });
+                    assert_eq!(
+                        discard_wallet_dialog(ctx, creating),
+                        if escape { Some(false) } else { None }
+                    );
                 });
             }
         }
@@ -1482,13 +1653,21 @@ mod tests {
                             });
                     });
                     for (label, on_left) in [("Copy", true), ("Hide", false)] {
-                        let x = output.shapes.iter().find_map(|shape| match &shape.shape {
-                            egui::Shape::Text(text) if text.galley.text() == label => {
-                                Some(text.pos.x + text.galley.size().x / 2.0)
-                            }
-                            _ => None,
-                        }).expect("recovery action should be visible");
-                        assert_eq!(x < (width + 32.0) / 2.0, on_left, "{label} at width {width}");
+                        let x = output
+                            .shapes
+                            .iter()
+                            .find_map(|shape| match &shape.shape {
+                                egui::Shape::Text(text) if text.galley.text() == label => {
+                                    Some(text.pos.x + text.galley.size().x / 2.0)
+                                }
+                                _ => None,
+                            })
+                            .expect("recovery action should be visible");
+                        assert_eq!(
+                            x < (width + 32.0) / 2.0,
+                            on_left,
+                            "{label} at width {width}"
+                        );
                     }
                 }
             }
@@ -1524,9 +1703,17 @@ mod tests {
                             .frame(egui::Frame::new().inner_margin(theme::PAGE_MARGIN))
                             .show(ctx, |ui| {
                                 let page = page_scroll(Stage::ViewPhrase).show(ui, |ui| {
-                                    theme::page_header(ui, "Seed phrase", Some(&"wallet-name-".repeat(5)));
+                                    theme::page_header(
+                                        ui,
+                                        "Seed phrase",
+                                        Some(&"wallet-name-".repeat(5)),
+                                    );
                                     recovery_panel(ui, |ui| {
-                                        revealed_card(ui, &"abstract ".repeat(words), MIN_RECOVERY_CARD_HEIGHT);
+                                        revealed_card(
+                                            ui,
+                                            &"abstract ".repeat(words),
+                                            MIN_RECOVERY_CARD_HEIGHT,
+                                        );
                                     });
                                     ui.add_space(6.0);
                                     theme::recovery_actions(ui, true, true);
@@ -1545,7 +1732,10 @@ mod tests {
                     break;
                 }
             }
-            assert!(visible, "{words} words at {width} × {height}: notice outside the viewport");
+            assert!(
+                visible,
+                "{words} words at {width} × {height}: notice outside the viewport"
+            );
         }
     }
 
@@ -1555,8 +1745,15 @@ mod tests {
         let mut reveal = PhraseReveal::default();
         assert!(reveal.visible(now, true).is_none());
         reveal.show("public display fixture".into(), now);
-        assert_eq!(reveal.visible(now + Duration::from_secs(59), true), Some("public display fixture"));
-        assert!(reveal.visible(now + Duration::from_secs(60), true).is_none());
+        assert_eq!(
+            reveal.visible(now + Duration::from_secs(59), true),
+            Some("public display fixture")
+        );
+        assert!(
+            reveal
+                .visible(now + Duration::from_secs(60), true)
+                .is_none()
+        );
         assert!(reveal.phrase.is_empty());
         assert!(reveal.deadline.is_none());
 
@@ -1579,7 +1776,8 @@ mod tests {
                 theme::configure(&ctx);
                 let raw = egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(
-                        egui::Pos2::ZERO, egui::vec2(width + 32.0, 600.0),
+                        egui::Pos2::ZERO,
+                        egui::vec2(width + 32.0, 600.0),
                     )),
                     ..Default::default()
                 };
@@ -1588,8 +1786,13 @@ mod tests {
                         .frame(egui::Frame::new().inner_margin(16))
                         .show(ctx, |ui| {
                             let bounds = ui.max_rect();
-                            let grid = ui.scope(|ui| recovery_words(ui, &"abstract ".repeat(count), 0.0));
-                            assert!(bounds.contains_rect(grid.response.rect), "width={width}, count={count}, bounds={bounds:?}, grid={:?}", grid.response.rect);
+                            let grid =
+                                ui.scope(|ui| recovery_words(ui, &"abstract ".repeat(count), 0.0));
+                            assert!(
+                                bounds.contains_rect(grid.response.rect),
+                                "width={width}, count={count}, bounds={bounds:?}, grid={:?}",
+                                grid.response.rect
+                            );
                         });
                 });
             }
@@ -1599,16 +1802,24 @@ mod tests {
     #[test]
     fn clipboard_is_allowed_on_public_pages_and_blocked_on_secret_pages() {
         for (stage, blocked) in [
-            (Stage::Welcome, false), (Stage::Wallets, false),
-            (Stage::Settings, false), (Stage::Details, false),
-            (Stage::Secrets, true), (Stage::Reveal, true),
-            (Stage::Backup, true), (Stage::Confirm, true),
-            (Stage::Success, false), (Stage::ViewPhrase, true),
-            (Stage::Delete, false), (Stage::Fatal, false),
+            (Stage::Welcome, false),
+            (Stage::Wallets, false),
+            (Stage::Settings, false),
+            (Stage::Details, false),
+            (Stage::Secrets, true),
+            (Stage::Reveal, true),
+            (Stage::Backup, true),
+            (Stage::Confirm, true),
+            (Stage::Success, false),
+            (Stage::ViewPhrase, true),
+            (Stage::Delete, false),
+            (Stage::Fatal, false),
         ] {
             assert_eq!(stage.blocks_clipboard(), blocked);
             let events = vec![
-                Event::Copy, Event::Cut, Event::Paste("public sentinel".into()),
+                Event::Copy,
+                Event::Cut,
+                Event::Paste("public sentinel".into()),
                 Event::Text("t".into()),
             ];
             let mut raw = egui::RawInput {
@@ -1618,7 +1829,14 @@ mod tests {
                 ..Default::default()
             };
             filter_input(&mut raw, stage.blocks_clipboard());
-            assert_eq!(raw.events, if blocked { vec![Event::Text("t".into())] } else { events });
+            assert_eq!(
+                raw.events,
+                if blocked {
+                    vec![Event::Text("t".into())]
+                } else {
+                    events
+                }
+            );
             assert!(raw.dropped_files.is_empty());
             assert!(raw.hovered_files.is_empty());
 
@@ -1626,14 +1844,21 @@ mod tests {
             let mut text = String::new();
             let _ = ctx.run(egui::RawInput::default(), |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.add(TextEdit::singleline(&mut text).id(Id::new("clipboard-field"))
-                        .password(blocked)).request_focus();
+                    ui.add(
+                        TextEdit::singleline(&mut text)
+                            .id(Id::new("clipboard-field"))
+                            .password(blocked),
+                    )
+                    .request_focus();
                 });
             });
             let _ = ctx.run(raw, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.add(TextEdit::singleline(&mut text).id(Id::new("clipboard-field"))
-                        .password(blocked));
+                    ui.add(
+                        TextEdit::singleline(&mut text)
+                            .id(Id::new("clipboard-field"))
+                            .password(blocked),
+                    );
                 });
             });
             assert_eq!(text, if blocked { "t" } else { "public sentinelt" });

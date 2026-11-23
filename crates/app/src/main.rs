@@ -1,6 +1,7 @@
 mod catalog;
 mod macos;
 mod model;
+mod signer;
 mod theme;
 mod ui;
 
@@ -141,6 +142,11 @@ fn main_impl() -> Result<()> {
     if args.len() == 2 && args[0] == "--bridge" {
         return bridge(&vault, args[1].parse().map_err(|_| Failure::Input)?);
     }
+    if let [command, operation, name] = args.as_slice()
+        && command == "signer"
+    {
+        return signer::run(&vault, operation, name);
+    }
     if args == ["list"] {
         macos::initialize_accessory()?;
         for entry in catalog::Catalog::for_group(&vault.group)?.load()? {
@@ -194,18 +200,24 @@ mod tests {
         let mut session = macos::AuthenticationSession::default();
         let request = b"{\"name\":\"public-test\",\"curve\":\"ed25519\",\"path\":\"m/0'\"}\n";
         let mut input = request.as_slice();
-        assert!(read_request(&mut input, &mut session, None)
-            .unwrap()
-            .is_some());
-        assert!(read_request(&mut input, &mut session, None)
-            .unwrap()
-            .is_none());
-        assert!(read_request(
-            &mut request[..request.len() - 1].as_ref(),
-            &mut session,
-            None
-        )
-        .is_err());
+        assert!(
+            read_request(&mut input, &mut session, None)
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            read_request(&mut input, &mut session, None)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            read_request(
+                &mut request[..request.len() - 1].as_ref(),
+                &mut session,
+                None
+            )
+            .is_err()
+        );
         assert!(read_request(&mut vec![b' '; 2049].as_slice(), &mut session, None).is_err());
         for mut invalid in [
             b"{}\n".as_slice(),
@@ -239,16 +251,22 @@ mod tests {
                 .unwrap();
             }
         });
-        assert!(read_request(&mut input, &mut session, Some(fd))
-            .unwrap()
-            .is_some());
+        assert!(
+            read_request(&mut input, &mut session, Some(fd))
+                .unwrap()
+                .is_some()
+        );
         assert!(session.remaining(Instant::now()).is_none());
-        assert!(read_request(&mut input, &mut session, Some(fd))
-            .unwrap()
-            .is_some());
-        assert!(read_request(&mut input, &mut session, Some(fd))
-            .unwrap()
-            .is_none());
+        assert!(
+            read_request(&mut input, &mut session, Some(fd))
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            read_request(&mut input, &mut session, Some(fd))
+                .unwrap()
+                .is_none()
+        );
         sender.join().unwrap();
     }
     #[test]

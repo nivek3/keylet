@@ -28,4 +28,6 @@ objc2-local-authentication.workspace = true
 security-framework-sys.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha3.workspace = true
+solana-ed25519.workspace = true
 zeroize = { workspace = true, features = ["derive"] }

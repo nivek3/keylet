@@ -8,7 +8,7 @@ Keylet stores recovery phrases in macOS Keychain. Authenticate with Touch ID or 
 
 It includes a native macOS app, `Keylet.app`, and SDKs for Node.js and Python. The SDK starts the signed app in the background when it needs a key.
 
-Private keys are intentionally returned to the calling process. Keep them in that process and out of logs or storage.
+The SDK's `getKeyPair()` returns the derived private key. Keep it in the calling process and out of logs or storage. [Local signers](#local-signing) use separate keys and return signatures instead.
 
 **Not released yet.** Build the app and SDK from source using the steps below. Start with an unfunded test wallet; the project has not undergone an independent security audit.
 
@@ -123,6 +123,21 @@ Recovering an existing account requires the original derivation path and BIP-39 
 - Explicit clipboard copies are cleared after 60 seconds while the app runs, before blocking authentication, or on normal exit, provided the clipboard still contains the app's latest copy. Copies retained by other software cannot be revoked.
 - The SDK requires a logged-in macOS session for interactive authentication. It does not target browsers, Linux/Windows servers, or unattended jobs.
 - Keep an independent offline recovery backup. A BIP-39 passphrase changes the wallet; it is not the Mac login password. Never share secrets in issues or logs.
+
+## Local signing
+
+The signed macOS app can generate a dedicated Ed25519 key on this Mac and store it as a separate entry in its private Keychain group. The CLI returns the public address and signature. The wallet SDK's `getKeyPair()` and the recovery phrase UI do not read these signer entries.
+
+```sh
+keylet=./build/Keylet.app/Contents/MacOS/keylet
+"$keylet" signer create agent
+"$keylet" signer address agent
+"$keylet" signer sign agent < message.bin
+```
+
+`sign` reads 1 to 1232 raw bytes from standard input and returns a Base58 address and a 64-byte Ed25519 signature as `0x`-prefixed hex. For Solana transactions, supply the serialized transaction **message**. The caller assembles and submits the signed transaction.
+
+Each signing request uses a fresh macOS authentication context. The prompt identifies the signer, byte count, and SHA3-256 digest. Verify the payload before approving. Keylet signs the supplied bytes without decoding them or applying transaction policies. Signer keys are device-local and have no export or recovery command. To permanently remove a key, run `"$keylet" signer delete agent` and authenticate.
 
 ## Development and documentation
 

@@ -28,6 +28,8 @@ use zeroize::Zeroizing;
 
 type Dict = CFDictionary<CFString, CFType>;
 const SETTINGS_SERVICE: &str = "local.keylet.settings.v1";
+const WALLET_SERVICE: &str = "local.keylet.mnemonic.v1";
+const SIGNER_SERVICE: &str = "local.keylet.ed25519-signer.v1";
 const NODE_TTL_ACCOUNT: &str = "node-authentication-ttl";
 const ITEM_NOT_FOUND: i32 = -25300;
 const DUPLICATE_ITEM: i32 = -25299;
@@ -243,7 +245,7 @@ impl Vault {
         Ok(Self { group })
     }
     fn query(&self, name: Option<&str>) -> Vec<(CFString, CFType)> {
-        self.item_query("local.keylet.mnemonic.v1", name)
+        self.item_query(WALLET_SERVICE, name)
     }
     fn item_query(&self, service: &str, name: Option<&str>) -> Vec<(CFString, CFType)> {
         // SAFETY: Security exports these CFString constants for the lifetime of the process.
@@ -335,6 +337,20 @@ impl Vault {
         if wallet.version != 1 || data.len() > 16384 {
             return Err(Failure::Corrupt);
         }
+        self.insert_protected(WALLET_SERVICE, name, &format!("Keylet: {name}"), &data)
+    }
+
+    pub fn insert_signer(&self, name: &str, seed: &[u8; 32]) -> Result<()> {
+        crate::model::validate_name(name)?;
+        self.insert_protected(
+            SIGNER_SERVICE,
+            name,
+            &format!("Keylet signer: {name}"),
+            seed,
+        )
+    }
+
+    fn insert_protected(&self, service: &str, name: &str, label: &str, data: &[u8]) -> Result<()> {
         unsafe {
             let mut error = ptr::null_mut();
             let acl = SecAccessControlCreateWithFlags(
@@ -350,16 +366,10 @@ impl Vault {
                 return Err(Failure::Configuration);
             }
             let acl = CFType::wrap_under_create_rule(acl.cast());
-            let mut q = self.query(Some(name));
+            let mut q = self.item_query(service, Some(name));
             q.push((symbol(kSecAttrAccessControl), acl));
-            q.push((
-                symbol(kSecAttrLabel),
-                CFString::new(&format!("Keylet: {name}")).as_CFType(),
-            ));
-            q.push((
-                symbol(kSecValueData),
-                CFData::from_buffer(&data).as_CFType(),
-            ));
+            q.push((symbol(kSecAttrLabel), CFString::new(label).as_CFType()));
+            q.push((symbol(kSecValueData), CFData::from_buffer(data).as_CFType()));
             // Never update duplicates or fall back to the file-based Keychain.
             status(SecItemAdd(
                 Dict::from_CFType_pairs(&q).as_concrete_TypeRef(),
@@ -373,8 +383,17 @@ impl Vault {
         name: &str,
         context: &AuthContext,
     ) -> Result<Vec<(CFString, CFType)>> {
+        self.protected_data_query(WALLET_SERVICE, name, context)
+    }
+
+    fn protected_data_query(
+        &self,
+        service: &str,
+        name: &str,
+        context: &AuthContext,
+    ) -> Result<Vec<(CFString, CFType)>> {
         crate::model::validate_name(name)?;
-        let mut q = self.query(Some(name));
+        let mut q = self.item_query(service, Some(name));
         // SAFETY: Security exports these CFString constants for the lifetime of the process.
         unsafe {
             q.push((symbol(kSecUseAuthenticationContext), context.as_cf()));
@@ -387,7 +406,7 @@ impl Vault {
         Ok(q)
     }
 
-    fn copy_wallet_item(q: &[(CFString, CFType)]) -> Result<CFType> {
+    fn copy_item(q: &[(CFString, CFType)]) -> Result<CFType> {
         // SAFETY: The query owns its attributes. A successful lookup returns a retained object.
         unsafe {
             let mut result = ptr::null();
@@ -417,7 +436,18 @@ impl Vault {
 
     pub fn read(&self, name: &str, context: &AuthContext) -> Result<StoredWallet> {
         let q = self.wallet_data_query(name, context)?;
-        Self::decode_wallet(&Self::copy_wallet_item(&q)?)
+        Self::decode_wallet(&Self::copy_item(&q)?)
+    }
+
+    pub fn read_signer(&self, name: &str, context: &AuthContext) -> Result<Zeroizing<[u8; 32]>> {
+        let q = self.protected_data_query(SIGNER_SERVICE, name, context)?;
+        Self::decode_signer(&Self::copy_item(&q)?)
+    }
+
+    fn decode_signer(data: &CFType) -> Result<Zeroizing<[u8; 32]>> {
+        let data = data.downcast::<CFData>().ok_or(Failure::Corrupt)?;
+        let bytes: &[u8; 32] = data.bytes().try_into().map_err(|_| Failure::Corrupt)?;
+        Ok(Zeroizing::new(*bytes))
     }
 
     fn names_query(&self, context: &AuthContext) -> Dict {
@@ -500,7 +530,29 @@ impl Vault {
 
     pub fn delete_authenticated(&self, name: &str) -> Result<()> {
         let context = AuthContext::new(&format!("permanently delete wallet \"{name}\""), false);
-        let mut q = self.wallet_data_query(name, &context)?;
+        self.delete_protected(WALLET_SERVICE, name, &context, |data| {
+            Self::decode_wallet(data).map(drop)
+        })
+    }
+
+    pub fn delete_signer(&self, name: &str) -> Result<()> {
+        let context = AuthContext::new(
+            &format!("permanently delete local signer \"{name}\""),
+            false,
+        );
+        self.delete_protected(SIGNER_SERVICE, name, &context, |data| {
+            Self::decode_signer(data).map(drop)
+        })
+    }
+
+    fn delete_protected(
+        &self,
+        service: &str,
+        name: &str,
+        context: &AuthContext,
+        validate: impl FnOnce(&CFType) -> Result<()>,
+    ) -> Result<()> {
+        let mut q = self.protected_data_query(service, name, context)?;
         // SAFETY: The Security keys are process-lifetime constants and both queries own their values.
         unsafe {
             q.push((
@@ -509,10 +561,10 @@ impl Vault {
             ));
             let deletion = {
                 // Fetch protected data and identity in the same authenticated lookup.
-                let item = dictionary(Self::copy_wallet_item(&q)?).map_err(|_| Failure::Corrupt)?;
+                let item = dictionary(Self::copy_item(&q)?).map_err(|_| Failure::Corrupt)?;
                 let data = item.find(symbol(kSecValueData)).ok_or(Failure::Corrupt)?;
-                Self::decode_wallet(&data)?;
-                Self::delete_query(&item, &context)?
+                validate(&data)?;
+                Self::delete_query(&item, context)?
             };
             status(SecItemDelete(deletion.as_concrete_TypeRef()))
         }
@@ -547,11 +599,16 @@ pub fn initialize_accessory() -> Result<()> {
 }
 
 pub fn generate_mnemonic() -> Result<Zeroizing<String>> {
-    let mut entropy = Zeroizing::new([0u8; 16]);
-    if unsafe { SecRandomCopyBytes(kSecRandomDefault, 16, entropy.as_mut_ptr().cast()) } != 0 {
-        return Err(Failure::Derivation);
-    }
+    let entropy = random_secret::<16>().map_err(|_| Failure::Derivation)?;
     wallet_crypto::mnemonic_from_entropy(&entropy).map_err(|_| Failure::Derivation)
+}
+
+pub fn random_secret<const N: usize>() -> Result<Zeroizing<[u8; N]>> {
+    let mut entropy = Zeroizing::new([0u8; N]);
+    if unsafe { SecRandomCopyBytes(kSecRandomDefault, N, entropy.as_mut_ptr().cast()) } != 0 {
+        return Err(Failure::Keychain);
+    }
+    Ok(entropy)
 }
 
 pub struct SecureInput(bool);
@@ -833,6 +890,30 @@ mod tests {
             );
             assert!(value(&names, &symbol(kSecReturnData).to_string()).is_none());
             assert!(value(&names, &symbol(kSecAttrAccount).to_string()).is_none());
+        }
+    }
+
+    #[test]
+    fn local_signer_and_wallet_use_separate_keychain_items() {
+        let vault = Vault {
+            group: "PREFIX.com.example.Wallet".into(),
+        };
+        let wallet = Dict::from_CFType_pairs(&vault.query(Some("public-test")));
+        let signer =
+            Dict::from_CFType_pairs(&vault.item_query(SIGNER_SERVICE, Some("public-test")));
+        unsafe {
+            assert_ne!(
+                wallet.find(symbol(kSecAttrService)),
+                signer.find(symbol(kSecAttrService))
+            );
+            assert_eq!(
+                signer.find(symbol(kSecAttrAccessGroup)),
+                wallet.find(symbol(kSecAttrAccessGroup))
+            );
+            assert_eq!(
+                value(&signer, &symbol(kSecAttrSynchronizable).to_string()),
+                Some(CFBoolean::false_value().as_CFType())
+            );
         }
     }
 

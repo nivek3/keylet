@@ -3584,6 +3584,8 @@ dependencies = [
  "security-framework-sys",
  "serde",
  "serde_json",
+ "sha3",
+ "solana-ed25519",
  "wallet-crypto",
  "zeroize",
 ]

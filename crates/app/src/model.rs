@@ -46,14 +46,24 @@ impl Failure {
     }
     pub fn message(self) -> &'static str {
         match self {
-            Self::Settings => "Unable to read authentication settings. Open Settings and save an option.",
+            Self::Settings => {
+                "Unable to read authentication settings. Open Settings and save an option."
+            }
             Self::Mnemonic => "Check the English recovery words, their order, and checksum.",
-            Self::Address => "The phrase, passphrase, and path do not match the expected Ethereum address.",
-            Self::PublicKey => "The phrase, passphrase, and path do not match the expected Ed25519 public key.",
+            Self::Address => {
+                "The phrase, passphrase, and path do not match the expected Ethereum address."
+            }
+            Self::PublicKey => {
+                "The phrase, passphrase, and path do not match the expected Ed25519 public key."
+            }
             Self::Duplicate => "That name already exists. The existing wallet was not changed.",
-            Self::Configuration => "The app's signing or secure-input configuration is invalid. Rebuild with your Personal Team.",
+            Self::Configuration => {
+                "The app's signing or secure-input configuration is invalid. Rebuild with your Personal Team."
+            }
             Self::Authentication => "macOS authentication was not completed. Nothing was unlocked.",
-            _ => "Check the wallet details, derivation path, and matching passphrase fields. Nothing was saved.",
+            _ => {
+                "Check the wallet details, derivation path, and matching passphrase fields. Nothing was saved."
+            }
         }
     }
 }
@@ -429,12 +439,16 @@ mod tests {
             serde_json::from_str::<KeyRequest>(r#"{"name":"x","path":"m/0'","curve":"p256"}"#)
                 .is_err()
         );
-        assert!(request(Curve::Ed25519, "m/0'")
-            .validate_identifier(&format!("0x{}", "0".repeat(64)))
-            .is_ok());
-        assert!(request(Curve::Ed25519, "m/0'")
-            .validate_identifier(&format!("0x{}\n", "0".repeat(64)))
-            .is_err());
+        assert!(
+            request(Curve::Ed25519, "m/0'")
+                .validate_identifier(&format!("0x{}", "0".repeat(64)))
+                .is_ok()
+        );
+        assert!(
+            request(Curve::Ed25519, "m/0'")
+                .validate_identifier(&format!("0x{}\n", "0".repeat(64)))
+                .is_err()
+        );
     }
     #[test]
     fn stored_wallet_and_independent_public_vectors() {

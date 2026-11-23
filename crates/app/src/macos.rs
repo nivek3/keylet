@@ -342,7 +342,12 @@ impl Vault {
 
     pub fn insert_signer(&self, name: &str, seed: &[u8; 32]) -> Result<()> {
         crate::model::validate_name(name)?;
-        self.insert_protected(SIGNER_SERVICE, name, &format!("Keylet signer: {name}"), seed)
+        self.insert_protected(
+            SIGNER_SERVICE,
+            name,
+            &format!("Keylet signer: {name}"),
+            seed,
+        )
     }
 
     fn insert_protected(&self, service: &str, name: &str, label: &str, data: &[u8]) -> Result<()> {
@@ -363,14 +368,8 @@ impl Vault {
             let acl = CFType::wrap_under_create_rule(acl.cast());
             let mut q = self.item_query(service, Some(name));
             q.push((symbol(kSecAttrAccessControl), acl));
-            q.push((
-                symbol(kSecAttrLabel),
-                CFString::new(label).as_CFType(),
-            ));
-            q.push((
-                symbol(kSecValueData),
-                CFData::from_buffer(data).as_CFType(),
-            ));
+            q.push((symbol(kSecAttrLabel), CFString::new(label).as_CFType()));
+            q.push((symbol(kSecValueData), CFData::from_buffer(data).as_CFType()));
             // Never update duplicates or fall back to the file-based Keychain.
             status(SecItemAdd(
                 Dict::from_CFType_pairs(&q).as_concrete_TypeRef(),
@@ -407,7 +406,7 @@ impl Vault {
         Ok(q)
     }
 
-    fn copy_wallet_item(q: &[(CFString, CFType)]) -> Result<CFType> {
+    fn copy_item(q: &[(CFString, CFType)]) -> Result<CFType> {
         // SAFETY: The query owns its attributes. A successful lookup returns a retained object.
         unsafe {
             let mut result = ptr::null();
@@ -437,19 +436,18 @@ impl Vault {
 
     pub fn read(&self, name: &str, context: &AuthContext) -> Result<StoredWallet> {
         let q = self.wallet_data_query(name, context)?;
-        Self::decode_wallet(&Self::copy_wallet_item(&q)?)
+        Self::decode_wallet(&Self::copy_item(&q)?)
     }
 
     pub fn read_signer(&self, name: &str, context: &AuthContext) -> Result<Zeroizing<[u8; 32]>> {
         let q = self.protected_data_query(SIGNER_SERVICE, name, context)?;
-        let item = Self::copy_wallet_item(&q)?;
-        let data = item.downcast::<CFData>().ok_or(Failure::Corrupt)?;
-        let mut seed = Zeroizing::new([0; 32]);
-        if data.len() != seed.len() as isize {
-            return Err(Failure::Corrupt);
-        }
-        seed.copy_from_slice(data.bytes());
-        Ok(seed)
+        Self::decode_signer(&Self::copy_item(&q)?)
+    }
+
+    fn decode_signer(data: &CFType) -> Result<Zeroizing<[u8; 32]>> {
+        let data = data.downcast::<CFData>().ok_or(Failure::Corrupt)?;
+        let bytes: &[u8; 32] = data.bytes().try_into().map_err(|_| Failure::Corrupt)?;
+        Ok(Zeroizing::new(*bytes))
     }
 
     fn names_query(&self, context: &AuthContext) -> Dict {
@@ -538,12 +536,12 @@ impl Vault {
     }
 
     pub fn delete_signer(&self, name: &str) -> Result<()> {
-        let context = AuthContext::new(&format!("permanently delete local signer \"{name}\""), false);
+        let context = AuthContext::new(
+            &format!("permanently delete local signer \"{name}\""),
+            false,
+        );
         self.delete_protected(SIGNER_SERVICE, name, &context, |data| {
-            match data.downcast::<CFData>() {
-                Some(seed) if seed.len() == 32 => Ok(()),
-                _ => Err(Failure::Corrupt),
-            }
+            Self::decode_signer(data).map(drop)
         })
     }
 
@@ -563,7 +561,7 @@ impl Vault {
             ));
             let deletion = {
                 // Fetch protected data and identity in the same authenticated lookup.
-                let item = dictionary(Self::copy_wallet_item(&q)?).map_err(|_| Failure::Corrupt)?;
+                let item = dictionary(Self::copy_item(&q)?).map_err(|_| Failure::Corrupt)?;
                 let data = item.find(symbol(kSecValueData)).ok_or(Failure::Corrupt)?;
                 validate(&data)?;
                 Self::delete_query(&item, context)?
@@ -601,14 +599,14 @@ pub fn initialize_accessory() -> Result<()> {
 }
 
 pub fn generate_mnemonic() -> Result<Zeroizing<String>> {
-    let entropy = random_secret::<16>()?;
+    let entropy = random_secret::<16>().map_err(|_| Failure::Derivation)?;
     wallet_crypto::mnemonic_from_entropy(&entropy).map_err(|_| Failure::Derivation)
 }
 
 pub fn random_secret<const N: usize>() -> Result<Zeroizing<[u8; N]>> {
     let mut entropy = Zeroizing::new([0u8; N]);
     if unsafe { SecRandomCopyBytes(kSecRandomDefault, N, entropy.as_mut_ptr().cast()) } != 0 {
-        return Err(Failure::Derivation);
+        return Err(Failure::Keychain);
     }
     Ok(entropy)
 }
@@ -901,15 +899,16 @@ mod tests {
             group: "PREFIX.com.example.Wallet".into(),
         };
         let wallet = Dict::from_CFType_pairs(&vault.query(Some("public-test")));
-        let signer = Dict::from_CFType_pairs(&vault.item_query(SIGNER_SERVICE, Some("public-test")));
+        let signer =
+            Dict::from_CFType_pairs(&vault.item_query(SIGNER_SERVICE, Some("public-test")));
         unsafe {
             assert_ne!(
                 wallet.find(symbol(kSecAttrService)),
                 signer.find(symbol(kSecAttrService))
             );
             assert_eq!(
-                wallet.find(symbol(kSecAttrAccessGroup)),
-                signer.find(symbol(kSecAttrAccessGroup))
+                signer.find(symbol(kSecAttrAccessGroup)),
+                wallet.find(symbol(kSecAttrAccessGroup))
             );
             assert_eq!(
                 value(&signer, &symbol(kSecAttrSynchronizable).to_string()),

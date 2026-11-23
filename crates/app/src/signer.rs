@@ -26,6 +26,11 @@ fn read_payload(input: impl Read) -> Result<Vec<u8>> {
     Ok(payload)
 }
 
+fn signature_response(name: &str, key: &SigningKey, payload: &[u8]) -> serde_json::Value {
+    let signature = model::hex(&key.sign(payload).to_bytes());
+    serde_json::json!({"name": name, "address": address(key), "signature": signature})
+}
+
 pub fn run(vault: &Vault, operation: &str, name: &str) -> Result<()> {
     model::validate_name(name)?;
     match operation {
@@ -55,9 +60,11 @@ pub fn run(vault: &Vault, operation: &str, name: &str) -> Result<()> {
             );
             let context = AuthContext::new(&reason, false);
             let seed = vault.read_signer(name, &context)?;
-            let key = SigningKey::from_bytes(&seed);
-            let signature = model::hex(&key.sign(&payload).to_bytes());
-            emit(&serde_json::json!({"name": name, "address": address(&key), "signature": signature}))
+            emit(&signature_response(
+                name,
+                &SigningKey::from_bytes(&seed),
+                &payload,
+            ))
         }
         "delete" => {
             macos::initialize_accessory()?;
@@ -86,11 +93,30 @@ mod tests {
     }
 
     #[test]
-    fn signs_the_original_payload() {
+    fn signature_response_verifies_against_the_reported_address() {
         let key = SigningKey::from_bytes(&[17; 32]);
         let payload = read_payload(&b"test\x00\n"[..]).unwrap();
-        let signature = key.sign(&payload);
-        let public_key = key.verification_key();
+        let response = signature_response("agent", &key, &payload);
+        assert_eq!(response["name"], "agent");
+
+        let address = response["address"].as_str().unwrap();
+        let public_key: [u8; 32] = bs58::decode(address)
+            .into_vec()
+            .unwrap()
+            .try_into()
+            .unwrap();
+        let public_key = solana_ed25519::ed_sigs::VerificationKey::try_from(public_key).unwrap();
+
+        let hex = response["signature"].as_str().unwrap();
+        let hex = hex.strip_prefix("0x").unwrap();
+        assert_eq!(hex.len(), 128);
+        let bytes: [u8; 64] = (0..64)
+            .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
+            .collect::<Vec<_>>()
+            .try_into()
+            .unwrap();
+        let signature = solana_ed25519::ed_sigs::Signature::from(bytes);
+
         assert!(public_key.verify(&signature, b"test\x00\n").is_ok());
         assert!(public_key.verify(&signature, b"test").is_err());
     }

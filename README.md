@@ -126,7 +126,7 @@ Recovering an existing account requires the original derivation path and BIP-39 
 
 ## Local signing
 
-The signed macOS app can create a dedicated Ed25519 key in its private Keychain group. The CLI returns the public address and signature. The wallet SDK and recovery phrase UI have no access to these signer entries.
+The signed macOS app can generate a dedicated Ed25519 key on this Mac and store it as a separate entry in its private Keychain group. The CLI returns the public address and signature. The wallet SDK's `getKeyPair()` and the recovery phrase UI do not read these signer entries.
 
 ```sh
 keylet=./build/Keylet.app/Contents/MacOS/keylet

@@ -51,6 +51,7 @@ pub struct Tile {
     top: Color32,
     bottom: Color32,
 }
+
 impl From<Color32> for Tile {
     fn from(color: Color32) -> Self {
         Self {
@@ -59,12 +60,14 @@ impl From<Color32> for Tile {
         }
     }
 }
+
 const fn tile(top: [u8; 3], bottom: [u8; 3]) -> Tile {
     Tile {
         top: Color32::from_rgb(top[0], top[1], top[2]),
         bottom: Color32::from_rgb(bottom[0], bottom[1], bottom[2]),
     }
 }
+
 /// Monogram tile colors, picked per wallet name like Passwords' generated icons:
 /// Apple's system colors at the bottom, each lifted 18% toward white at the top. As
 /// in Passwords the letter is decorative, since the wallet name sits beside it.
@@ -108,6 +111,7 @@ fn paint_tile(painter: &egui::Painter, rect: egui::Rect, radius: f32, tile: Tile
     }
     painter.add(egui::Shape::mesh(mesh));
 }
+
 const MEDIUM: &str = "medium";
 
 pub fn configure(ctx: &egui::Context) {
@@ -251,6 +255,7 @@ fn button(
     focus_ring(ui, response.rect, response.has_focus());
     response
 }
+
 pub fn primary(ui: &mut Ui, label: &str) -> egui::Response {
     button(
         ui,
@@ -260,6 +265,7 @@ pub fn primary(ui: &mut Ui, label: &str) -> egui::Response {
         ACCENT_INK,
     )
 }
+
 pub fn secondary(ui: &mut Ui, label: &str) -> egui::Response {
     button(
         ui,
@@ -269,6 +275,7 @@ pub fn secondary(ui: &mut Ui, label: &str) -> egui::Response {
         INK,
     )
 }
+
 pub fn danger(ui: &mut Ui, label: &str) -> egui::Response {
     button(
         ui,
@@ -365,12 +372,14 @@ pub(crate) fn wallet_choice(ui: &mut Ui, width: f32, choice: WalletChoice) -> eg
     focus_ring(ui, rect, response.has_focus());
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tone {
     Primary,
     Secondary,
     Danger,
 }
+
 /// A button in a `button_bar`.
 #[derive(Clone, Copy)]
 pub struct Action<'a> {
@@ -378,6 +387,7 @@ pub struct Action<'a> {
     tone: Tone,
     enabled: bool,
 }
+
 impl<'a> Action<'a> {
     pub fn primary(label: &'a str) -> Self {
         Self {
@@ -386,18 +396,21 @@ impl<'a> Action<'a> {
             enabled: true,
         }
     }
+
     pub fn secondary(label: &'a str) -> Self {
         Self {
             tone: Tone::Secondary,
             ..Self::primary(label)
         }
     }
+
     pub fn danger(label: &'a str) -> Self {
         Self {
             tone: Tone::Danger,
             ..Self::primary(label)
         }
     }
+
     pub fn enabled(self, enabled: bool) -> Self {
         Self { enabled, ..self }
     }
@@ -438,6 +451,7 @@ pub fn actions(ui: &mut Ui, back: &str, next: &str) -> (bool, bool) {
     let (_, clicks) = button_bar(ui, &[], &[Action::secondary(back), Action::primary(next)]);
     (clicks[1], clicks[0])
 }
+
 pub fn backup_actions(ui: &mut Ui) -> (bool, bool, bool) {
     let (lead, trail) = button_bar(
         ui,
@@ -446,12 +460,15 @@ pub fn backup_actions(ui: &mut Ui) -> (bool, bool, bool) {
     );
     (trail[1], lead[0], trail[0])
 }
+
 pub fn hint(ui: &mut Ui, text: &str) {
     ui.label(RichText::new(text).size(11.0).color(MUTED));
 }
+
 pub fn label(ui: &mut Ui, text: &str) -> egui::Response {
     ui.label(RichText::new(text).font(medium_font(12.0)))
 }
+
 /// Caption above a grouped card, aligned with the card's row text.
 pub fn section(ui: &mut Ui, text: &str) {
     ui.add_space(16.0);
@@ -461,6 +478,7 @@ pub fn section(ui: &mut Ui, text: &str) {
     });
     ui.add_space(4.0);
 }
+
 pub fn footnote(ui: &mut Ui, text: &str) -> egui::Response {
     ui.add_space(4.0);
     ui.horizontal(|ui| {
@@ -469,6 +487,7 @@ pub fn footnote(ui: &mut Ui, text: &str) -> egui::Response {
     })
     .response
 }
+
 /// A footnote with a trailing text action, such as "Hide". Returns its click.
 pub fn footnote_action(ui: &mut Ui, text: &str, action: &str) -> egui::Response {
     ui.add_space(4.0);
@@ -491,6 +510,7 @@ pub fn footnote_action(ui: &mut Ui, text: &str, action: &str) -> egui::Response 
     })
     .inner
 }
+
 pub fn page_header(ui: &mut Ui, title: &str, wallet: Option<&str>) -> egui::Response {
     let response = ui
         .horizontal(|ui| {
@@ -511,6 +531,7 @@ pub fn page_header(ui: &mut Ui, title: &str, wallet: Option<&str>) -> egui::Resp
     ui.add_space(4.0);
     response
 }
+
 /// Large icon and title at the top of a wallet's details, as in Passwords.
 pub fn detail_header(ui: &mut Ui, name: &str, subtitle: &str) -> egui::Response {
     ui.horizontal(|ui| {
@@ -524,6 +545,7 @@ pub fn detail_header(ui: &mut Ui, name: &str, subtitle: &str) -> egui::Response 
     })
     .response
 }
+
 pub fn input_frame() -> Frame {
     Frame::new()
         .fill(SURFACE)
@@ -531,6 +553,7 @@ pub fn input_frame() -> Frame {
         .corner_radius(6)
         .inner_margin(Margin::symmetric(9, 6))
 }
+
 pub fn public_field(ui: &mut Ui, title: &str, text: &mut String, limit: usize) {
     let label = label(ui, title);
     let field = input_frame().show(ui, |ui| {
@@ -570,6 +593,7 @@ pub fn alert_icon(ui: &mut Ui, tile: impl Into<Tile>, glyph: &str, badge: Option
         );
     }
 }
+
 /// Icon for a wallet: its monogram tile and letter.
 pub fn wallet_alert_icon(ui: &mut Ui, name: &str, badge: Option<Color32>) {
     let letter = name
@@ -605,6 +629,7 @@ pub fn alert<R>(
     })
     .inner
 }
+
 /// Right-aligned alert buttons: the secondary choice, then the default one at the
 /// trailing edge. Returns `(primary, secondary)` clicks.
 pub fn alert_buttons(
@@ -663,6 +688,7 @@ pub fn group<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> egui::InnerRespo
             add(ui)
         })
 }
+
 pub fn group_separator(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), Sense::hover());
     ui.painter().hline(
@@ -764,6 +790,7 @@ pub fn field_row(
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
+
 /// A full-width text action row, like "Delete Password" in Passwords.
 pub fn action_row(ui: &mut Ui, label: &str, color: Color32) -> egui::Response {
     let width = ui.available_width();
@@ -794,9 +821,11 @@ pub fn action_row(ui: &mut Ui, label: &str, color: Color32) -> egui::Response {
     });
     response.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
+
 pub fn destructive_row(ui: &mut Ui, label: &str) -> egui::Response {
     action_row(ui, label, DANGER_INK)
 }
+
 /// Caption column on the left and a control on the right, aligned with `field_row`.
 pub fn form_row<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> R {
     let label_width = (ui.available_width() * 0.26).clamp(72.0, 104.0);
@@ -830,6 +859,7 @@ pub fn form_row<R>(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui) -> R) -> 
         })
         .inner
 }
+
 pub fn toolbar_button(ui: &mut Ui, label: &str) -> egui::Response {
     let response = ui
         .scope(|ui| {
@@ -849,12 +879,14 @@ pub fn toolbar_button(ui: &mut Ui, label: &str) -> egui::Response {
     focus_ring(ui, response.rect, response.has_focus());
     response
 }
+
 fn labeled(ui: &Ui, response: egui::Response, label: &str) -> egui::Response {
     response.widget_info(|| {
         egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), label)
     });
     response.on_hover_text(label)
 }
+
 /// Line weight shared by the toolbar glyphs so they read as one set.
 const TOOLBAR_STROKE: f32 = 1.5;
 pub fn add_button(ui: &mut Ui) -> egui::Response {
@@ -871,6 +903,7 @@ pub fn add_button(ui: &mut Ui) -> egui::Response {
     );
     labeled(ui, response, "Add wallet")
 }
+
 pub fn more_button(ui: &mut Ui) -> egui::Response {
     let response = toolbar_button(ui, "");
     let center = response.rect.center();
@@ -882,10 +915,12 @@ pub fn more_button(ui: &mut Ui) -> egui::Response {
     }
     labeled(ui, response, "More actions")
 }
+
 pub fn search_icon(ui: &mut Ui) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(16.0, 16.0), Sense::hover());
     paint_search_icon(ui, rect, MUTED);
 }
+
 pub fn search_button(ui: &mut Ui) -> egui::Response {
     let response = toolbar_button(ui, "");
     paint_search_icon(
@@ -898,6 +933,7 @@ pub fn search_button(ui: &mut Ui) -> egui::Response {
     );
     labeled(ui, response, "Search wallets")
 }
+
 fn paint_search_icon(ui: &Ui, rect: egui::Rect, color: Color32) {
     let center = rect.center() - egui::vec2(2.0, 2.0);
     let stroke = Stroke::new(TOOLBAR_STROKE, color);
@@ -910,6 +946,7 @@ fn paint_search_icon(ui: &Ui, rect: egui::Rect, color: Color32) {
         stroke,
     );
 }
+
 pub fn navigation_button(ui: &mut Ui, label: &str, sidebar: Option<bool>) -> egui::Response {
     let response = toolbar_button(ui, "");
     let stroke = Stroke::new(TOOLBAR_STROKE, SIDEBAR_INK);
@@ -937,17 +974,20 @@ pub fn navigation_button(ui: &mut Ui, label: &str, sidebar: Option<bool>) -> egu
     }
     labeled(ui, response, label)
 }
+
 fn tile_color(name: &str) -> Tile {
     let hash = name.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
         (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
     });
     TILES[hash as usize % TILES.len()]
 }
+
 /// Rounded-square monogram, the Passwords fallback for sites without an icon.
 pub fn monogram(ui: &mut Ui, name: &str, size: f32) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), Sense::hover());
     paint_monogram(ui, rect, name);
 }
+
 fn paint_monogram(ui: &Ui, rect: egui::Rect, name: &str) {
     let painter = ui.painter();
     paint_tile(painter, rect, rect.width() * 0.225, tile_color(name));
@@ -965,6 +1005,7 @@ fn paint_monogram(ui: &Ui, rect: egui::Rect, name: &str) {
         ACCENT_INK,
     );
 }
+
 pub const WALLET_ROW_HEIGHT: f32 = 44.0;
 pub fn wallet_row(ui: &mut Ui, name: &str, subtitle: &str, selected: bool) -> egui::Response {
     let width = ui.available_width();
@@ -1021,6 +1062,7 @@ pub fn wallet_row(ui: &mut Ui, name: &str, subtitle: &str, selected: bool) -> eg
     });
     row.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
+
 /// `0xad12…c38b10`: the prefix (with `0x` when present) plus four characters, then
 /// the last six. Used wherever an address is shown before the person asks for it.
 pub fn abbreviate_address(address: &str) -> String {
@@ -1034,6 +1076,7 @@ pub fn abbreviate_address(address: &str) -> String {
     let tail: String = chars[chars.len() - tail..].iter().collect();
     format!("{head}…{tail}")
 }
+
 pub fn focus_ring(ui: &Ui, rect: egui::Rect, focused: bool) {
     if focused {
         ui.painter().rect_stroke(
@@ -1198,6 +1241,7 @@ mod tests {
             });
         }
     }
+
     #[test]
     fn wallet_row_can_be_activated_with_the_keyboard() {
         {
@@ -1228,6 +1272,7 @@ mod tests {
             }
         }
     }
+
     #[test]
     fn addresses_abbreviate_to_four_and_six_characters() {
         assert_eq!(
@@ -1290,6 +1335,7 @@ mod tests {
             );
         }
     }
+
     #[test]
     fn field_rows_without_an_action_are_not_buttons() {
         let ctx = egui::Context::default();
@@ -1304,6 +1350,7 @@ mod tests {
             });
         });
     }
+
     #[test]
     fn system_font_and_form_render_without_overflow() {
         let ctx = egui::Context::default();

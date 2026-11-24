@@ -101,9 +101,11 @@ fn dictionary(value: &CFType) -> Result<Dict> {
     // SAFETY: `untyped` is a live CFDictionary; the get rule retains it for the typed wrapper.
     Ok(unsafe { Dict::wrap_under_get_rule(untyped.as_concrete_TypeRef()) })
 }
+
 fn string(value: Option<CFType>) -> Option<String> {
     value?.downcast::<CFString>().map(|s| s.to_string())
 }
+
 fn validate_signing(info: &Dict, bundle: &str, group: &str) -> Result<()> {
     if !group.ends_with(&format!(".{bundle}")) || group.contains('*') {
         return Err(Failure::Configuration);
@@ -160,11 +162,13 @@ impl AuthContext {
             Self(context)
         }
     }
+
     fn as_cf(&self) -> CFType {
         // SAFETY: `self.0` keeps the LAContext alive, and an Objective-C object is a valid CF object; the get rule retains it.
         unsafe { CFType::wrap_under_get_rule(Retained::as_ptr(&self.0).cast()) }
     }
 }
+
 impl Drop for AuthContext {
     fn drop(&mut self) {
         // SAFETY: invalidating a context this wrapper owns is always valid; later evaluations fail instead of prompting.
@@ -182,12 +186,14 @@ pub struct AuthenticationSession {
     authenticated_wall: Option<std::time::SystemTime>,
     ttl: Duration,
 }
+
 impl AuthenticationSession {
     pub fn clear(&mut self) {
         self.context = None;
         self.authenticated_at = None;
         self.authenticated_wall = None;
     }
+
     pub fn expire(&mut self, now: Instant) {
         if self
             .authenticated_at
@@ -199,10 +205,12 @@ impl AuthenticationSession {
             self.clear();
         }
     }
+
     pub fn remaining(&self, now: Instant) -> Option<Duration> {
         self.authenticated_at
             .map(|start| self.ttl.saturating_sub(now.duration_since(start)))
     }
+
     pub fn context(&mut self, reason: &str, ttl: Duration, now: Instant) -> &AuthContext {
         self.expire(now);
         if self.ttl != ttl {
@@ -212,6 +220,7 @@ impl AuthenticationSession {
         self.context
             .get_or_insert_with(|| AuthContext::new(reason, false))
     }
+
     pub fn complete(&mut self, success: bool, now: Instant) {
         if success && !self.ttl.is_zero() {
             self.authenticated_at.get_or_insert(now);
@@ -226,6 +235,7 @@ impl AuthenticationSession {
 pub struct Vault {
     pub group: String,
 }
+
 impl Vault {
     pub fn new() -> Result<Self> {
         let bundle = NSBundle::mainBundle();
@@ -270,9 +280,11 @@ impl Vault {
         }
         Ok(Self { group })
     }
+
     fn query(&self, name: Option<&str>) -> Vec<(CFString, CFType)> {
         self.item_query(WALLET_SERVICE, name)
     }
+
     fn item_query(&self, service: &str, name: Option<&str>) -> Vec<(CFString, CFType)> {
         // SAFETY: Security exports these CFString constants for the lifetime of the process.
         unsafe {
@@ -301,19 +313,24 @@ impl Vault {
             pairs
         }
     }
+
     pub fn authentication_ttl(&self) -> Result<u64> {
         self.read_ttl(NODE_TTL_ACCOUNT)
     }
+
     pub fn set_authentication_ttl(&self, seconds: u64) -> Result<()> {
         self.write_ttl(NODE_TTL_ACCOUNT, seconds)
     }
+
     /// How long a signer session may sign without asking again. Defaults to 0.
     pub fn signer_authentication_ttl(&self) -> Result<u64> {
         self.read_ttl(SIGNER_TTL_ACCOUNT)
     }
+
     pub fn set_signer_authentication_ttl(&self, seconds: u64) -> Result<()> {
         self.write_ttl(SIGNER_TTL_ACCOUNT, seconds)
     }
+
     fn read_ttl(&self, account: &str) -> Result<u64> {
         // SAFETY: The query owns its attributes. A successful lookup returns a retained object.
         unsafe {
@@ -338,6 +355,7 @@ impl Vault {
             }
         }
     }
+
     fn write_ttl(&self, account: &str, seconds: u64) -> Result<()> {
         let mut query = self.item_query(SETTINGS_SERVICE, Some(account));
         let match_query = Dict::from_CFType_pairs(&query);
@@ -370,6 +388,7 @@ impl Vault {
             status(result).map_err(|_| Failure::Settings)
         }
     }
+
     pub fn insert(&self, name: &str, wallet: &StoredWallet) -> Result<()> {
         crate::model::validate_name(name)?;
         let data = Zeroizing::new(serde_json::to_vec(wallet).map_err(|_| Failure::Corrupt)?);
@@ -506,6 +525,7 @@ impl Vault {
             Dict::from_CFType_pairs(&q)
         }
     }
+
     fn names_with_context(&self, context: &AuthContext) -> Result<Vec<String>> {
         // SAFETY: the query outlives SecItemCopyMatching; a non-null result is an owned reference wrapped under the create rule, and rows are borrowed from it while it is alive.
         unsafe {
@@ -665,6 +685,7 @@ impl SecureInput {
     pub fn new() -> Self {
         Self(false)
     }
+
     pub fn set(&mut self, enabled: bool) -> Result<()> {
         if self.0 != enabled {
             // SAFETY: these calls take no arguments; `self.0` tracks the state so enable and disable stay balanced.
@@ -683,6 +704,7 @@ impl SecureInput {
         Ok(())
     }
 }
+
 impl Drop for SecureInput {
     fn drop(&mut self) {
         let _ = self.set(false);
@@ -693,6 +715,7 @@ pub struct Clipboard {
     board: Retained<NSPasteboard>,
     expiry: Option<(Instant, isize)>,
 }
+
 impl Clipboard {
     pub fn new() -> Self {
         Self {
@@ -700,6 +723,7 @@ impl Clipboard {
             expiry: None,
         }
     }
+
     pub fn copy(&mut self, words: &str) -> Result<()> {
         self.board.clearContents();
         if !self.board.setString_forType(
@@ -714,6 +738,7 @@ impl Clipboard {
         ));
         Ok(())
     }
+
     #[cfg(test)]
     fn paste_confirmation(&self) -> Result<Zeroizing<String>> {
         let value = self
@@ -729,6 +754,7 @@ impl Clipboard {
         }
         Ok(value)
     }
+
     pub fn tick(&mut self, now: Instant) {
         if let Some((deadline, count)) = self.expiry {
             if now >= deadline {
@@ -738,10 +764,12 @@ impl Clipboard {
             }
         }
     }
+
     pub fn has_copy(&self) -> bool {
         self.expiry
             .is_some_and(|(_, count)| self.board.changeCount() == count)
     }
+
     pub fn clear(&mut self) {
         if let Some((_, count)) = self.expiry.take()
             && self.board.changeCount() == count
@@ -755,6 +783,7 @@ pub struct ClipboardGate {
     monitor: Retained<AnyObject>,
     blocked: Rc<Cell<bool>>,
 }
+
 impl ClipboardGate {
     pub fn new() -> Result<Self> {
         let blocked = Rc::new(Cell::new(true));
@@ -780,10 +809,12 @@ impl ClipboardGate {
         .ok_or(Failure::Configuration)?;
         Ok(Self { monitor, blocked })
     }
+
     pub fn set_blocked(&self, blocked: bool) {
         self.blocked.set(blocked);
     }
 }
+
 impl Drop for ClipboardGate {
     fn drop(&mut self) {
         // SAFETY: `monitor` came from addLocalMonitorForEventsMatchingMask and is removed exactly once.
@@ -836,6 +867,7 @@ mod tests {
         session.expire(now);
         assert!(session.context.is_none());
     }
+
     #[test]
     fn system_entropy_generates_a_valid_twelve_word_wallet_without_persistence() {
         let phrase = generate_mnemonic().unwrap();
@@ -852,6 +884,7 @@ mod tests {
         };
         assert!(crate::model::derive(&wallet, &request, None).is_ok());
     }
+
     #[test]
     fn clipboard_expiry_preserves_new_content_and_resets_timer() {
         let board = NSPasteboard::pasteboardWithUniqueName();
@@ -1012,6 +1045,7 @@ mod tests {
         assert_eq!(status(-25299), Err(Failure::Duplicate));
         assert_eq!(status(-1), Err(Failure::Keychain));
     }
+
     #[test]
     fn signing_requires_hardened_private_group_without_debug_exceptions() {
         let group = "PREFIX.com.example.Wallet";

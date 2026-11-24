@@ -42,6 +42,7 @@ enum Stage {
     Delete,
     Fatal,
 }
+
 impl Stage {
     fn blocks_clipboard(self) -> bool {
         matches!(
@@ -49,12 +50,14 @@ impl Stage {
             Self::Secrets | Self::Reveal | Self::Backup | Self::Confirm | Self::ViewPhrase
         )
     }
+
     fn has_draft(self) -> bool {
         matches!(
             self,
             Self::Details | Self::Secrets | Self::Reveal | Self::Backup | Self::Confirm
         )
     }
+
     fn previous(self) -> Option<Self> {
         match self {
             Self::Wallets | Self::Fatal => None,
@@ -67,6 +70,7 @@ impl Stage {
         }
     }
 }
+
 struct WalletApp {
     vault: Vault,
     stage: Stage,
@@ -108,6 +112,7 @@ struct BackupConfirmation {
     words: [Zeroizing<String>; 12],
     order: [usize; 12],
 }
+
 impl Default for BackupConfirmation {
     fn default() -> Self {
         Self {
@@ -116,12 +121,14 @@ impl Default for BackupConfirmation {
         }
     }
 }
+
 impl BackupConfirmation {
     fn clear(&mut self) {
         for word in &mut self.words {
             word.zeroize();
         }
     }
+
     fn shuffle(&mut self) {
         self.clear();
         self.order = std::array::from_fn(|index| index);
@@ -134,6 +141,7 @@ impl BackupConfirmation {
             self.order.swap(0, 1);
         }
     }
+
     fn phrase(&self) -> Result<Zeroizing<String>> {
         let mut phrase = Zeroizing::new(String::new());
         for word in &self.words {
@@ -179,16 +187,19 @@ struct PhraseReveal {
     phrase: Zeroizing<String>,
     deadline: Option<Instant>,
 }
+
 impl PhraseReveal {
     fn show(&mut self, phrase: String, now: Instant) {
         self.clear();
         self.phrase = Zeroizing::new(phrase);
         self.deadline = Some(now + Duration::from_secs(60));
     }
+
     fn clear(&mut self) {
         self.phrase.zeroize();
         self.deadline = None;
     }
+
     fn visible(&mut self, now: Instant, focused: bool) -> Option<&str> {
         if !focused || self.deadline.is_none_or(|deadline| now >= deadline) {
             self.clear();
@@ -442,6 +453,7 @@ fn secret_field(ui: &mut egui::Ui, label: &str, id: &str, value: &mut String) ->
     output.state.store(ui.ctx(), output.response.id);
     output.response.labelled_by(label.id)
 }
+
 fn filter_input(raw: &mut egui::RawInput, blocked: bool) {
     raw.dropped_files.clear();
     raw.hovered_files.clear();
@@ -524,6 +536,7 @@ impl WalletApp {
         // Authentication can block the UI timer; clear our sensitive copy first.
         self.clipboard.clear();
     }
+
     fn request(&self) -> KeyRequest {
         KeyRequest {
             name: self.name.clone(),
@@ -531,6 +544,7 @@ impl WalletApp {
             curve: self.curve,
         }
     }
+
     fn wipe_draft(&mut self) {
         self.account_view = accounts::AccountView::default();
         self.revealed.clear();
@@ -542,6 +556,7 @@ impl WalletApp {
         self.pending = None;
         self.pending_wallet_selection = None;
     }
+
     fn reveal_wallet(&mut self, name: &str) -> Result<()> {
         self.wipe_draft();
         self.prepare_authentication();
@@ -563,9 +578,11 @@ impl WalletApp {
         self.message.clear();
         Ok(())
     }
+
     fn back(&mut self) {
         self.show_wallets();
     }
+
     fn navigate_back(&mut self) {
         let Some(previous) = self.stage.previous() else {
             self.revealed.clear();
@@ -585,12 +602,14 @@ impl WalletApp {
             self.show_wallets();
         }
     }
+
     fn return_to_wallets(&mut self) {
         self.wipe_draft();
         self.deletion = None;
         self.message.clear();
         self.stage = Stage::Wallets;
     }
+
     fn select_wallet(&mut self, name: String) {
         if self.stage.has_draft() {
             self.revealed.clear();
@@ -601,6 +620,7 @@ impl WalletApp {
             self.selected_wallet = Some(name);
         }
     }
+
     fn show_wallets(&mut self) {
         self.return_to_wallets();
         self.wallets.clear();
@@ -614,6 +634,7 @@ impl WalletApp {
             }
         }
     }
+
     fn sync_wallets(&mut self) {
         self.prepare_authentication();
         // Keychain rebuilds the derived caches and re-derives remembered paths.
@@ -635,6 +656,7 @@ impl WalletApp {
             }
         }
     }
+
     fn confirm_delete(&mut self, names: Vec<String>) {
         self.revealed.clear();
         match DeletePlan::new(names) {
@@ -646,6 +668,7 @@ impl WalletApp {
             Err(error) => self.message = format!("Unable to prepare deletion ({}).", error.code()),
         }
     }
+
     fn prepare(&mut self) -> Result<()> {
         let request = self.request();
         request.validate()?;
@@ -689,6 +712,7 @@ impl WalletApp {
             result
         }
     }
+
     fn save(&mut self) -> Result<()> {
         self.prepare_authentication();
         let wallet = self.pending.as_ref().ok_or(Failure::Input)?.for_save()?;
@@ -718,6 +742,7 @@ impl WalletApp {
         self.cli_result.set(Some(output));
         Ok(())
     }
+
     fn title(&self) -> &'static str {
         match self.stage {
             Stage::Welcome => "Add wallet",
@@ -743,6 +768,7 @@ impl WalletApp {
             Stage::Fatal => "Unable to open the wallet",
         }
     }
+
     fn content(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, focused: bool) {
         match self.stage {
             Stage::Welcome => {
@@ -1258,12 +1284,15 @@ impl eframe::App for WalletApp {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         theme::CANVAS.to_normalized_gamma_f32()
     }
+
     fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
         filter_input(raw, self.stage.blocks_clipboard());
     }
+
     fn persist_egui_memory(&self) -> bool {
         false
     }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let focused = ctx.input(|i| i.focused);
         if self.stage != Stage::ViewPhrase {
@@ -1313,6 +1342,7 @@ impl eframe::App for WalletApp {
         self.clipboard_gate
             .set_blocked(self.stage.blocks_clipboard());
     }
+
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.wipe_draft();
         self.clipboard.clear();
@@ -1627,6 +1657,7 @@ mod tests {
         assert!(Stage::Wallets.previous().is_none());
         assert!(Stage::Fatal.previous().is_none());
     }
+
     #[test]
     fn custom_authentication_minutes_accept_long_windows_and_reject_overflow() {
         for (input, seconds) in [("0", 0), ("5", 300), ("90", 5400), ("1440", 86400)] {
@@ -1671,6 +1702,7 @@ mod tests {
             assert!(!stage.has_draft());
         }
     }
+
     #[test]
     fn discard_confirmation_uses_the_alert_layout() {
         for (creating, title) in [(false, "Discard import?"), (true, "Discard wallet setup?")] {
@@ -1726,6 +1758,7 @@ mod tests {
             );
         }
     }
+
     #[test]
     fn escape_from_discard_confirmation_keeps_the_wallet_draft() {
         for creating in [false, true] {
@@ -1751,6 +1784,7 @@ mod tests {
             }
         }
     }
+
     #[test]
     fn saved_wallet_reports_delivery_failure_without_claiming_save_failed() {
         assert!(saved_message(true, Ok(())).is_empty());
@@ -1762,6 +1796,7 @@ mod tests {
         assert!(message.contains("Sync from Keychain"));
         assert!(message.contains("could not be delivered"));
     }
+
     #[test]
     fn hiding_phrase_keeps_card_and_actions_in_place() {
         for width in [260.0, 356.0, 400.0, 560.0, 760.0] {

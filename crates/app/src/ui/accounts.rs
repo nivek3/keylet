@@ -20,6 +20,7 @@ pub(super) struct AccountView {
     copied: Option<String>,
     message: String,
 }
+
 impl Default for AccountView {
     fn default() -> Self {
         Self {
@@ -42,6 +43,7 @@ impl Default for AccountView {
         }
     }
 }
+
 impl AccountView {
     pub(super) fn select_wallet(&mut self, name: &str) {
         if self.wallet != name {
@@ -51,6 +53,7 @@ impl AccountView {
             };
         }
     }
+
     /// Adopts the wallet's current display cache. An address derived earlier belongs to
     /// the previous cache, so it is dropped when the cache changes (e.g. after Sync from
     /// Keychain); a fresh derivation is remembered in the new cache and still shows.
@@ -60,6 +63,7 @@ impl AccountView {
             self.address = None;
         }
     }
+
     /// The address for the current inputs without reading the key: the one derived
     /// after authentication, or a cached address for the first account indices.
     fn known_address(&self) -> Option<String> {

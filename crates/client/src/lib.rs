@@ -234,12 +234,14 @@ struct AppSession {
     stderr: ChildStderr,
     secret: UnixStream,
 }
+
 impl Drop for AppSession {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
+
 impl AppSession {
     fn start(selection: &Selection) -> BridgeResult<Self> {
         let (secret, child_secret) = UnixStream::pair().map_err(|_| "TRANSPORT_ERROR")?;
@@ -290,6 +292,7 @@ impl AppSession {
             secret,
         })
     }
+
     fn read_key(
         &mut self,
         selection: &Selection,

@@ -425,12 +425,14 @@ struct HelperProcess {
     stdout: ChildStdout,
     stderr: ChildStderr,
 }
+
 impl Drop for HelperProcess {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
+
 impl HelperProcess {
     fn start(helper: &Path, args: &[String], interactive: bool) -> BridgeResult<Self> {
         let mut command = helper_command(helper);
@@ -466,12 +468,14 @@ impl HelperProcess {
             }
         }
     }
+
     fn write_line(&mut self, line: &str) -> BridgeResult<()> {
         let stdin = self.stdin.as_mut().ok_or("TRANSPORT_ERROR")?;
         writeln!(stdin, "{line}")
             .and_then(|()| stdin.flush())
             .map_err(|_| "TRANSPORT_ERROR")
     }
+
     /// Reads exactly one newline-terminated response and any stderr seen so far.
     fn read_line(
         &mut self,

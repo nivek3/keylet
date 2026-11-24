@@ -18,6 +18,7 @@ fn emit(value: &serde_json::Value) -> Result<()> {
     stdout.write_all(b"\n").map_err(|_| Failure::Transport)?;
     stdout.flush().map_err(|_| Failure::Transport)
 }
+
 fn pipe_descriptor(fd: i32) -> bool {
     // SAFETY: `stat` is a zeroed plain C struct that fstat fills in; an invalid descriptor makes fstat fail, which is checked.
     unsafe {
@@ -28,6 +29,7 @@ fn pipe_descriptor(fd: i32) -> bool {
         matches!(stat.st_mode & libc::S_IFMT, libc::S_IFIFO | libc::S_IFSOCK)
     }
 }
+
 /// Read one newline-terminated frame. While waiting on `fd`, an idle session expires on time.
 fn read_frame(
     input: &mut impl Read,
@@ -80,6 +82,7 @@ fn read_frame(
     }
     Ok(Some(data))
 }
+
 fn read_request(
     input: &mut impl Read,
     session: &mut macos::AuthenticationSession,
@@ -92,6 +95,7 @@ fn read_request(
     request.validate()?;
     Ok(Some(request))
 }
+
 fn bridge(vault: &macos::Vault, requested_ttl: u64) -> Result<()> {
     if !pipe_descriptor(0) || !pipe_descriptor(3) {
         return Err(Failure::Transport);
@@ -131,6 +135,7 @@ fn bridge(vault: &macos::Vault, requested_ttl: u64) -> Result<()> {
     }
     Ok(())
 }
+
 fn main_impl() -> Result<()> {
     // SAFETY: `limit` is a valid rlimit for the call, and ignoring SIGPIPE installs no handler code.
     unsafe {
@@ -199,6 +204,7 @@ fn main_impl() -> Result<()> {
     let pair = model::derive(&wallet, &request, Some(&args[3]))?;
     emit(&serde_json::json!({"name":request.name,"path":request.path,"address":pair.identifier}))
 }
+
 fn main() {
     // Suppress panic payloads and backtraces, which may contain secret-bearing inputs.
     std::panic::set_hook(Box::new(|_| eprintln!("INVALID_INPUT")));
@@ -243,6 +249,7 @@ mod tests {
             assert!(read_request(&mut invalid, &mut session, None).is_err());
         }
     }
+
     #[test]
     fn idle_bridge_expires_authentication_and_reads_multiple_frames() {
         use std::{
@@ -286,6 +293,7 @@ mod tests {
         );
         sender.join().unwrap();
     }
+
     #[test]
     fn secret_transport_rejects_regular_files() {
         use std::os::fd::AsRawFd;

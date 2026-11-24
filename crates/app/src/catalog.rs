@@ -297,7 +297,16 @@ mod tests {
             .keys()
             .map(String::as_str)
             .collect();
-        assert_eq!(keys, ["ethereumAddress", "name", "solanaAddress"]);
+        assert_eq!(
+            keys,
+            [
+                "ethereumAccounts",
+                "ethereumAddress",
+                "name",
+                "solanaAccounts",
+                "solanaAddress"
+            ]
+        );
         let mut malformed = c.load().unwrap().remove(0);
         malformed.solana_address = Some("not-a-solana-address".into());
         assert!(c.upsert(malformed).is_err());

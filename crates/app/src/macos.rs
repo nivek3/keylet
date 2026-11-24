@@ -693,10 +693,10 @@ impl Clipboard {
             .is_some_and(|(_, count)| self.board.changeCount() == count)
     }
     pub fn clear(&mut self) {
-        if let Some((_, count)) = self.expiry.take() {
-            if self.board.changeCount() == count {
-                self.board.clearContents();
-            }
+        if let Some((_, count)) = self.expiry.take()
+            && self.board.changeCount() == count
+        {
+            self.board.clearContents();
         }
     }
 }

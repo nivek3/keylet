@@ -32,8 +32,8 @@ https://github.com/user-attachments/assets/3554d122-92ed-412b-bce7-057f6dcdcdff
 
 - Creates and imports English BIP-39 recovery phrases with an optional passphrase.
 - Stores wallets behind macOS system authentication and a private Keychain access group.
-- Lists wallet names and cached default Ethereum / Solana addresses without unlocking secrets. Use **Derived account** to verify an address.
-- Shows and copies Ethereum / Solana addresses by index or full derivation path after authentication, under **Derived account** in wallet details.
+- Lists wallet names and cached Ethereum / Solana addresses without unlocking secrets. Addresses for account indices 0–9 are cached when a wallet is created, imported, or synced.
+- Copies Ethereum / Solana addresses by index or full derivation path under **Derived accounts** in wallet details. Cached indices copy directly; other indices and custom paths require authentication once, after which the address is remembered.
 - Reveals a recovery phrase or deletes a wallet after authentication and explicit user action.
 - Returns secp256k1 or SLIP-0010 Ed25519 key pairs through Node.js and Python APIs.
 

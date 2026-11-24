@@ -54,7 +54,7 @@ signed_entitlements = {
 }
 resources = app / "Contents/Resources"
 resources.mkdir(parents=True, exist_ok=True)
-shutil.copyfile(pathlib.Path(__file__).resolve().parents[1] / "assets/AppIcon.icns",
+shutil.copyfile(pathlib.Path(__file__).resolve().parents[1] / "crates/app/assets/AppIcon.icns",
                 resources / "AppIcon.icns")
 for path, value in [(app / "Contents/Info.plist", info),
                     (app.parent / "entitlements.plist", signed_entitlements)]:

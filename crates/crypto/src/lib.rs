@@ -1,5 +1,5 @@
 //! Shared wallet derivation and selection rules.
-use bip32::{secp256k1::ecdsa::VerifyingKey, DerivationPath, XPrv};
+use bip32::{DerivationPath, XPrv, secp256k1::ecdsa::VerifyingKey};
 use bip39::{Language, Mnemonic};
 use derivation_path::DerivationPath as EdPath;
 use serde::{Deserialize, Serialize};
@@ -267,7 +267,10 @@ mod tests {
     fn entropy_to_mnemonic_bip39_vector() {
         let entropy = [0u8; 16];
         let words = mnemonic_from_entropy(&entropy).unwrap();
-        assert_eq!(words.as_str(), "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
+        assert_eq!(
+            words.as_str(),
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        );
         assert_eq!(
             Mnemonic::parse_in(Language::English, words.as_str())
                 .unwrap()
@@ -305,7 +308,10 @@ mod tests {
         let mnemonic = Mnemonic::parse_in(Language::English, words).unwrap();
         let seed = Zeroizing::new(mnemonic.to_seed("TREZOR"));
         let hex: String = seed.iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(hex, "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04");
+        assert_eq!(
+            hex,
+            "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04"
+        );
         assert_eq!(
             *derive(WORDS, "é", Curve::Secp256k1, PATH).unwrap().0,
             *derive(WORDS, "e\u{301}", Curve::Secp256k1, PATH).unwrap().0

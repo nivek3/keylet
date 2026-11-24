@@ -153,6 +153,28 @@ pub struct StoredWallet {
 
 pub const DEFAULT_ETH_PATH: &str = "m/44'/60'/0'/0/0";
 pub const DEFAULT_SOL_PATH: &str = "m/44'/501'/0'/0'";
+/// Account indices whose public addresses are cached for display without a key read.
+pub const CACHED_ACCOUNTS: u32 = 10;
+/// Other derived addresses remembered after an authenticated read, newest last.
+pub const MAX_SAVED_ACCOUNTS: usize = 32;
+
+/// A public address derived for a path outside the cached account indices.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SavedAccount {
+    pub curve: Curve,
+    pub path: String,
+    pub address: String,
+}
+
+/// The standard account path for an index: the last Ethereum component, or the
+/// Solana account component (every Solana component is hardened).
+pub fn account_path(curve: Curve, index: u32) -> String {
+    match curve {
+        Curve::Secp256k1 => format!("m/44'/60'/0'/0/{index}"),
+        Curve::Ed25519 => format!("m/44'/501'/{index}'/0'"),
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -162,6 +184,13 @@ pub struct WalletSummary {
     pub ethereum_address: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solana_address: Option<String>,
+    /// Public addresses for account indices `0..CACHED_ACCOUNTS`, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ethereum_accounts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub solana_accounts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub saved_accounts: Vec<SavedAccount>,
 }
 impl WalletSummary {
     #[cfg(test)]
@@ -170,6 +199,9 @@ impl WalletSummary {
             name,
             ethereum_address: None,
             solana_address: None,
+            ethereum_accounts: Vec::new(),
+            solana_accounts: Vec::new(),
+            saved_accounts: Vec::new(),
         }
     }
     pub fn from_wallet(name: &str, wallet: &StoredWallet) -> Result<Self> {
@@ -191,27 +223,130 @@ impl WalletSummary {
             },
             None,
         )?;
+        let accounts = |curve| {
+            (0..CACHED_ACCOUNTS)
+                .map(|index| {
+                    derive(
+                        wallet,
+                        &KeyRequest {
+                            name: name.into(),
+                            curve,
+                            path: account_path(curve, index),
+                        },
+                        None,
+                    )
+                    .map(|pair| pair.address)
+                })
+                .collect::<Result<Vec<_>>>()
+        };
         Ok(Self {
             name: name.into(),
             ethereum_address: Some(eth.identifier),
             solana_address: Some(sol.address),
+            ethereum_accounts: accounts(Curve::Secp256k1)?,
+            solana_accounts: accounts(Curve::Ed25519)?,
+            saved_accounts: Vec::new(),
         })
+    }
+    /// Remembers an authenticated derivation so its address shows without a key read
+    /// next time. The oldest entry is dropped beyond `MAX_SAVED_ACCOUNTS`.
+    pub fn remember(&mut self, curve: Curve, path: &str, address: &str) {
+        if self.cached_account(curve, path).is_some() {
+            return;
+        }
+        self.saved_accounts.push(SavedAccount {
+            curve,
+            path: path.into(),
+            address: address.into(),
+        });
+        if self.saved_accounts.len() > MAX_SAVED_ACCOUNTS {
+            self.saved_accounts.remove(0);
+        }
+    }
+    /// The cached address for a standard account path, if that index is cached.
+    pub fn cached_account(&self, curve: Curve, path: &str) -> Option<&str> {
+        let accounts = match curve {
+            Curve::Secp256k1 => &self.ethereum_accounts,
+            Curve::Ed25519 => &self.solana_accounts,
+        };
+        (0..accounts.len() as u32)
+            .position(|index| account_path(curve, index) == path)
+            .map(|index| accounts[index].as_str())
+            // The default addresses predate the index cache and cover index 0.
+            .or_else(|| match curve {
+                Curve::Secp256k1 if path == DEFAULT_ETH_PATH => self.ethereum_address.as_deref(),
+                Curve::Ed25519 if path == DEFAULT_SOL_PATH => self.solana_address.as_deref(),
+                _ => None,
+            })
+            .or_else(|| {
+                self.saved_accounts
+                    .iter()
+                    .find(|saved| saved.curve == curve && saved.path == path)
+                    .map(|saved| saved.address.as_str())
+            })
     }
     pub fn validate(&self) -> Result<()> {
         validate_name(&self.name).map_err(|_| Failure::Catalog)?;
+        let ethereum = |eth: &String| {
+            eth.len() == 42
+                && eth.starts_with("0x")
+                && eth[2..].bytes().all(|b| b.is_ascii_hexdigit())
+        };
+        let solana = |sol: &String| {
+            sol.len() <= 44
+                && bs58::decode(sol)
+                    .into_vec()
+                    .is_ok_and(|bytes| bytes.len() == 32)
+        };
+        let limit = CACHED_ACCOUNTS as usize;
+        let saved = |saved: &SavedAccount| {
+            KeyRequest {
+                name: self.name.clone(),
+                curve: saved.curve,
+                path: saved.path.clone(),
+            }
+            .validate()
+            .is_ok()
+                && match saved.curve {
+                    Curve::Secp256k1 => ethereum(&saved.address),
+                    Curve::Ed25519 => solana(&saved.address),
+                }
+        };
+        let has_defaults = self.ethereum_address.is_some();
+        let index_zero_matches = |accounts: &[String], default: &Option<String>| {
+            accounts
+                .first()
+                .is_none_or(|first| Some(first) == default.as_ref())
+        };
+        let unique_paths = self.saved_accounts.iter().enumerate().all(|(i, a)| {
+            self.saved_accounts[..i]
+                .iter()
+                .all(|b| (b.curve, &b.path) != (a.curve, &a.path))
+        });
+        // Index 0 must agree with the default address shown above it, saved paths are
+        // unique, and derived caches only exist alongside the defaults.
+        if !index_zero_matches(&self.ethereum_accounts, &self.ethereum_address)
+            || !index_zero_matches(&self.solana_accounts, &self.solana_address)
+            || !unique_paths
+            || (!has_defaults
+                && (!self.ethereum_accounts.is_empty()
+                    || !self.solana_accounts.is_empty()
+                    || !self.saved_accounts.is_empty()))
+        {
+            return Err(Failure::Catalog);
+        }
+        if self.ethereum_accounts.len() > limit
+            || self.solana_accounts.len() > limit
+            || self.saved_accounts.len() > MAX_SAVED_ACCOUNTS
+            || !self.ethereum_accounts.iter().all(ethereum)
+            || !self.solana_accounts.iter().all(solana)
+            || !self.saved_accounts.iter().all(saved)
+        {
+            return Err(Failure::Catalog);
+        }
         match (&self.ethereum_address, &self.solana_address) {
             (None, None) => Ok(()),
-            (Some(eth), Some(sol))
-                if eth.len() == 42
-                    && eth.starts_with("0x")
-                    && eth[2..].bytes().all(|b| b.is_ascii_hexdigit())
-                    && sol.len() <= 44
-                    && bs58::decode(sol)
-                        .into_vec()
-                        .is_ok_and(|bytes| bytes.len() == 32) =>
-            {
-                Ok(())
-            }
+            (Some(eth), Some(sol)) if ethereum(eth) && solana(sol) => Ok(()),
             _ => Err(Failure::Catalog),
         }
     }
@@ -485,6 +620,92 @@ mod tests {
             ]
         );
         assert!(summary.validate().is_ok());
+        assert_eq!(summary.ethereum_accounts.len(), CACHED_ACCOUNTS as usize);
+        assert_eq!(summary.solana_accounts.len(), CACHED_ACCOUNTS as usize);
+        assert_eq!(
+            summary.cached_account(Curve::Secp256k1, "m/44'/60'/0'/0/2"),
+            Some("0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc")
+        );
+        assert_eq!(
+            summary.cached_account(Curve::Ed25519, "m/44'/501'/0'/0'"),
+            Some("oeYf6KAJkLYhBuR8CiGc6L4D4Xtfepr85fuDgA9kq96")
+        );
+        assert_eq!(
+            summary.cached_account(Curve::Secp256k1, "m/44'/60'/0'/0/10"),
+            None
+        );
+        assert_eq!(
+            summary.cached_account(Curve::Ed25519, "m/44'/501'/2'/0"),
+            None
+        );
+        let mut tampered = summary.clone();
+        tampered.solana_accounts[3] = "not-an-address".into();
+        assert!(tampered.validate().is_err());
+        let mut remembered = summary.clone();
+        remembered.remember(
+            Curve::Secp256k1,
+            "m/44'/60'/0'/0/2",
+            "0xignored0000000000000000000000000000000000",
+        );
+        assert!(
+            remembered.saved_accounts.is_empty(),
+            "cached indices are not saved twice"
+        );
+        remembered.remember(
+            Curve::Ed25519,
+            "m/44'/501'/0'/1'",
+            "oeYf6KAJkLYhBuR8CiGc6L4D4Xtfepr85fuDgA9kq96",
+        );
+        assert_eq!(
+            remembered.cached_account(Curve::Ed25519, "m/44'/501'/0'/1'"),
+            Some("oeYf6KAJkLYhBuR8CiGc6L4D4Xtfepr85fuDgA9kq96")
+        );
+        assert!(remembered.validate().is_ok());
+        for index in 100..100 + MAX_SAVED_ACCOUNTS as u32 {
+            remembered.remember(
+                Curve::Secp256k1,
+                &account_path(Curve::Secp256k1, index),
+                "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+            );
+        }
+        assert_eq!(remembered.saved_accounts.len(), MAX_SAVED_ACCOUNTS);
+        assert!(
+            remembered
+                .cached_account(Curve::Ed25519, "m/44'/501'/0'/1'")
+                .is_none()
+        );
+        assert!(remembered.validate().is_ok());
+        remembered.saved_accounts[0].path = "m/44'/501'/0'/1".into();
+        assert!(remembered.validate().is_err());
+        let mut mismatched = summary.clone();
+        mismatched.ethereum_accounts[0] = mismatched.ethereum_accounts[1].clone();
+        assert!(
+            mismatched.validate().is_err(),
+            "index 0 must match the default"
+        );
+        let mut duplicated = summary.clone();
+        duplicated.remember(
+            Curve::Ed25519,
+            "m/44'/501'/0'/1'",
+            "oeYf6KAJkLYhBuR8CiGc6L4D4Xtfepr85fuDgA9kq96",
+        );
+        assert!(duplicated.validate().is_ok());
+        duplicated
+            .saved_accounts
+            .push(duplicated.saved_accounts[0].clone());
+        assert!(duplicated.validate().is_err(), "saved paths must be unique");
+        let mut orphaned = summary.clone();
+        orphaned.ethereum_address = None;
+        orphaned.solana_address = None;
+        assert!(
+            orphaned.validate().is_err(),
+            "caches need default addresses"
+        );
+        let mut oversized = summary.clone();
+        oversized
+            .ethereum_accounts
+            .push(oversized.ethereum_accounts[0].clone());
+        assert!(oversized.validate().is_err());
         assert!(summary.matches(" PUBLIC-TEST "));
         assert!(summary.matches("f39fd6e5"));
         assert!(summary.matches("oeYf6KAJ"));

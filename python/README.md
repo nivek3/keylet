@@ -43,6 +43,30 @@ The fixed reuse window begins when authentication succeeds. Calls reuse the cont
 
 Invalid wallet selections raise `ValueError`. Helper failures raise `RuntimeError` with the same message codes as the Node SDK, including `KEYLET_APP_NOT_FOUND` and `CANCELLED`. After a failure, a later call can retry. See [Node error codes](../node/README.md#troubleshooting).
 
+## Sign with a local signer
+
+Local signers keep the private key in the app and return only signatures. Create one with the app's CLI first, for example `keylet signer create evm --curve secp256k1`. See [Local signing](../README.md#local-signing).
+
+```python
+from keylet import get_signer_public_key, sign_with_signer
+
+key = get_signer_public_key(name="evm")  # Prompts for macOS authentication.
+signed = sign_with_signer(name="evm", payload=sighash, auth_ttl=60)
+print(signed.signature, signed.recovery_id)
+```
+
+- `payload` is `bytes`. Ed25519 signers sign 1 to 1232 raw bytes, such as a serialized Solana transaction message. secp256k1 signers sign exactly one 32-byte digest, such as an Ethereum transaction hash or a Bitcoin sighash.
+- The result has `name`, `curve`, `public_key`, and a 64-byte `signature` in `0x` hex. secp256k1 results add `recovery_id` (0 or 1) and use low-S `r || s`. Ed25519 results add `address`, the Base58 public key. The SDK verifies every signature against the public key before returning it.
+- **Keylet signs blindly.** It does not decode payloads or apply transaction policies.
+- Calls with the same `name` and `auth_ttl` share one signing session in this process. The app's **Settings → Reuse signer auth** sets how long a session may sign without asking again (default 0). `auth_ttl` can only shorten that window. At most 8 sessions stay open per process: a session closes once it has been idle longer than its `auth_ttl`, and the least recently used one closes when another is needed. Invalid requests raise `ValueError("Invalid signer request")`, and app failures raise `RuntimeError` with the same codes as `get_key_pair`.
+
+The [`examples/`](examples) directory signs a Bitcoin sighash for a P2WPKH witness and a Solana message, using only the standard library:
+
+```sh
+python examples/sign_bitcoin_sighash.py evm <32-byte sighash hex>
+python examples/sign_solana_message.py sol "hello"
+```
+
 ## Build and test a wheel
 
 Run these commands from the `python/` directory in an activated virtual environment:

@@ -56,6 +56,25 @@ const keys = await getKeyPair({
 
 Helper state disappears when the Node process exits. Failures terminate the helper; a subsequent explicit call can retry. Deleting a wallet or locking the screen does not revoke keys already returned to your code.
 
+## Sign with a local signer
+
+Local signers keep the private key in the app and return only signatures. Create one first with the app's CLI, for example `keylet signer create evm --curve secp256k1` or `keylet signer derive btc --wallet trading --curve secp256k1 --path "m/84'/0'/0'/0/0"`. See [Local signing](https://github.com/nivek3/keylet#local-signing).
+
+```ts
+import { signWithSigner, getSignerPublicKey } from 'keylet';
+
+const { publicKey } = await getSignerPublicKey('evm'); // Prompts for macOS authentication.
+const signed = await signWithSigner({ name: 'evm', payload: tx.unsignedHash, authTTL: 60 });
+// signed: { name, curve, publicKey, signature, recoveryId }
+```
+
+- `payload` is a `Uint8Array` or a `0x` hex string. Ed25519 signers sign 1 to 1232 raw bytes, such as a serialized Solana transaction message. secp256k1 signers sign exactly one 32-byte digest, such as an Ethereum transaction hash, an EIP-191 or EIP-712 hash, or a Bitcoin sighash.
+- The result's `signature` is 64 bytes. For secp256k1 it is `r || s`, low-S, with `recoveryId` 0 or 1: Ethereum uses `v = 27 + recoveryId` or the typed-transaction parity, and Bitcoin uses DER plus a sighash byte. Ed25519 results include `address`, the Base58 public key.
+- The SDK verifies every signature against the returned public key before it returns, and rejects malformed or mismatched responses with `INVALID_HELPER_RESPONSE`.
+- **Keylet signs blindly.** It does not decode the payload or apply amount, allowlist, or swap policies. Build and check transactions in your own code.
+
+Calls with the same `name` and `authTTL` share one signing session in this Node process. In **… → Settings → Reuse signer auth**, the app sets how long a session may sign without asking again (default `0`, which prompts for every signature). `authTTL` can only shorten that window, and omitting it follows the app. During the window, this process can sign any payload with that signer. An app error ends the session, and the next call starts a new one. The SDK keeps at most 8 sessions per process: it closes a session once it has been idle longer than its `authTTL`, and closes the least recently used one when another is needed. Invalid requests reject with `Invalid signer request` before the app starts.
+
 ## Run the examples
 
 Build the SDK first. The examples load the built package through its public `keylet` entry point. From the repository's `node/` directory, using a wallet already saved as `trading`:
@@ -65,6 +84,14 @@ node --import tsx examples/ethers-v5.ts trading 2
 node --import tsx examples/ethers-v6.ts trading 2
 node --import tsx examples/viem.ts trading 2
 node --import tsx examples/ed25519.ts trading "m/44'/501'/2'/0'"
+```
+
+The signer examples use local signers (`evm` is secp256k1, `sol` is Ed25519) and never receive a private key:
+
+```sh
+node --import tsx examples/signer-ethers.ts evm      # EIP-1559 transaction and personal_sign
+node --import tsx examples/signer-solana.ts sol "hello"
+node --import tsx examples/signer-bitcoin.ts evm <32-byte sighash hex>   # P2WPKH witness
 ```
 
 The first three examples print only the Ethereum address; the Ed25519 example prints only the hex public key. `index: 2` selects `m/44'/60'/0'/0/2`. Callers choose the Ed25519 path. Do not pass an Ed25519 seed to ethers `Wallet` to derive the corresponding Solana account.

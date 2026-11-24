@@ -7,7 +7,7 @@ use std::{
         fd::{AsRawFd, RawFd},
         unix::{net::UnixStream, process::CommandExt},
     },
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio},
     sync::{Mutex, OnceLock},
     thread,
@@ -17,6 +17,7 @@ use wallet_crypto::{Curve, valid_wallet_name};
 use zeroize::Zeroizing;
 
 mod discovery;
+pub mod signer;
 
 type BridgeResult<T> = Result<T, &'static str>;
 /// Error returned when the wallet selection fails validation.
@@ -178,6 +179,18 @@ fn unlock(selection: Selection, cancelled: impl Fn() -> bool) -> BridgeResult<Ke
     result
 }
 
+/// A helper command with a minimal environment; secrets never come from the environment.
+fn helper_command(helper: &Path) -> Command {
+    let mut command = Command::new(helper);
+    command.env_clear().env("PATH", "/usr/bin:/bin");
+    for name in ["HOME", "USER", "LOGNAME", "TMPDIR"] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
+    command
+}
+
 fn nonblocking(fd: RawFd) -> BridgeResult<()> {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
@@ -219,20 +232,13 @@ impl AppSession {
     fn start(selection: &Selection) -> BridgeResult<Self> {
         let (secret, child_secret) = UnixStream::pair().map_err(|_| "TRANSPORT_ERROR")?;
         let fd = child_secret.as_raw_fd();
-        let mut command = Command::new(&selection.helper);
+        let mut command = helper_command(&selection.helper);
         command
             .arg("--bridge")
             .arg(selection.authentication_ttl.to_string())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin");
-        for name in ["HOME", "USER", "LOGNAME", "TMPDIR"] {
-            if let Some(value) = std::env::var_os(name) {
-                command.env(name, value);
-            }
-        }
+            .stderr(Stdio::piped());
         // After fork, only async-signal-safe descriptor operations before exec.
         unsafe {
             command.pre_exec(move || {
@@ -517,14 +523,13 @@ mod tests {
             authentication_ttl: 300,
         };
         let start = Instant::now();
-        assert!(matches!(
-            AppSession::start(&selection).unwrap().read_key(
-                &selection,
-                Duration::from_millis(40),
-                || false
-            ),
-            Err("AUTHENTICATION_TIMEOUT")
-        ));
+        let result = AppSession::start(&selection).unwrap().read_key(
+            &selection,
+            Duration::from_millis(40),
+            || false,
+        );
+        // Report the actual code if this ever fails (seen once on CI).
+        assert_eq!(result.err(), Some("AUTHENTICATION_TIMEOUT"));
         assert!(start.elapsed() < Duration::from_secs(1));
         fs::remove_dir_all(root).unwrap();
     }

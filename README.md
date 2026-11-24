@@ -160,6 +160,8 @@ Each response line has the same fields as `sign`. Any error ends the session. Se
 
 **Keylet signs blindly.** It never decodes payloads or applies transaction policies such as amount limits, allowlists, or swap checks; implement those in the calling service. Each prompt shows the signer, byte count, and the payload itself if it is 32 bytes or less (otherwise its SHA3-256 digest). The first prompt of a session also states the reuse window. During the window, the process holding the session can sign anything. Use a dedicated signer with limited funds, and keep the window short.
 
+The [Node.js](node/README.md#sign-with-a-local-signer) and [Python](python/README.md#sign-with-a-local-signer) SDKs wrap sessions as `signWithSigner()` and `sign_with_signer()`. They verify every signature before returning it.
+
 Signer keys are device-local and have no export command. To permanently remove a key, run `"$keylet" signer delete <name>` and authenticate.
 
 ## Development and documentation

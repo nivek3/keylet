@@ -24,7 +24,48 @@ def fail(code):
     sys.exit(1)
 
 
+# Signatures precomputed with independent libraries (Node crypto and ethers)
+# over SIGNER_PAYLOAD (Ed25519) and its SHA-256 digest (secp256k1).
+SIGNER_PAYLOAD = b"keylet python fixture"
+SIGNERS = {
+    "ed25519": {
+        "publicKey": "0x" + VECTORS["ed25519"][2],
+        "address": "FVen3X669xLzsi6N2V91DoiyzHzg1uAgqiT8jZ9nS96Z",
+        "signature": "0x86583ef5a432087188ee40fe17450679b5b91fe5a661de4988fd0a769f0c797f"
+        "9533e3a15da2c63572c45ec2e48a6222243b6c6afcd8a8812f5fe61ea66a1901",
+    },
+    "secp256k1": {
+        "publicKey": "0x" + VECTORS["secp256k1"][2],
+        "signature": "0x1c16d5a086e6b5cd734fcc2217e879c747e1f4ad22c710099b3500999fefc3a4"
+        "49c0b57c7bf182314d997841f0b12af87c25fc3ae3cc415b1fbb0688893b4219",
+        "recoveryId": 1,
+    },
+}
+
+
+def signer(operation, name, options):
+    with Path(__file__).with_suffix(".starts").open("a") as log:
+        print(" ".join([operation, name, *options]), file=log)
+    curve = "secp256k1" if name.startswith("evm") else "ed25519"
+    response = {"name": name, "curve": curve, **SIGNERS[curve]}
+    if name.startswith("missing"):
+        fail("NOT_FOUND")
+    if operation == "public-key":
+        response.pop("signature")
+        response.pop("recoveryId", None)
+        print(json.dumps(response), flush=True)
+        return
+    for _ in sys.stdin:
+        if name.startswith("cancel"):
+            fail("CANCELLED")
+        # Always answers with the precomputed signature; other payloads fail verification.
+        print(json.dumps(response), flush=True)
+
+
 def main():
+    if sys.argv[1:2] == ["signer"] and len(sys.argv) >= 4:
+        signer(sys.argv[2], sys.argv[3], sys.argv[4:])
+        return
     if sys.argv[1:] != ["--bridge", "0"]:
         fail("INVALID_INPUT")
     for line in sys.stdin:

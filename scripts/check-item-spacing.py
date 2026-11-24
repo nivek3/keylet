@@ -38,7 +38,12 @@ def violations(lines):
             continue
         j = i + 1
         while j < len(lines) and PREFIX.match(lines[j]):
+            # Attributes may span lines, as rustfmt writes long #[expect(...)] blocks.
+            depth = lines[j].count("[") - lines[j].count("]")
             j += 1
+            while depth > 0 and j < len(lines):
+                depth += lines[j].count("[") - lines[j].count("]")
+                j += 1
         if j < len(lines) and ITEM.match(lines[j][len(indent) :]):
             yield i
 

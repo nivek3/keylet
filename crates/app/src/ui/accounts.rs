@@ -537,7 +537,7 @@ mod tests {
         assert_eq!(view.request().unwrap().name, "second");
         assert_eq!(view.index, "0");
         assert!(view.address.is_none());
-        assert!(view.message.is_empty());
+        assert_eq!(view.message, "");
     }
 
     #[test]

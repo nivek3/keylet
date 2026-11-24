@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn public_metadata_persistence_sync_and_failure_do_not_touch_keys() {
         let c = fixture();
-        assert!(c.load().unwrap().is_empty());
+        assert_eq!(c.load().unwrap(), []);
         c.upsert(WalletSummary::named("second".into())).unwrap();
         c.upsert(WalletSummary::named("first".into())).unwrap();
         c.upsert(WalletSummary::named("first".into())).unwrap();

@@ -1466,10 +1466,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "the same page must lay out at exactly the same offset"
-    )]
     fn opening_settings_does_not_inherit_seed_phrase_scroll() {
         let ctx = egui::Context::default();
         theme::configure(&ctx);
@@ -1508,7 +1504,11 @@ mod tests {
             render_page(Stage::ViewPhrase, true);
         }
         assert!(render_page(Stage::ViewPhrase, false) < phrase_top);
-        assert_eq!(render_page(Stage::Settings, false), settings_top);
+        // The same page must lay out at exactly the same offset.
+        assert_eq!(
+            render_page(Stage::Settings, false).to_bits(),
+            settings_top.to_bits()
+        );
     }
 
     #[test]
@@ -1787,7 +1787,7 @@ mod tests {
 
     #[test]
     fn saved_wallet_reports_delivery_failure_without_claiming_save_failed() {
-        assert!(saved_message(true, Ok(())).is_empty());
+        assert_eq!(saved_message(true, Ok(())), "");
         let message = saved_message(true, Err(Failure::Transport));
         assert!(message.contains("Wallet saved in Keychain"));
         assert!(message.contains("Do not import it again"));
@@ -2064,8 +2064,8 @@ mod tests {
                     events
                 }
             );
-            assert!(raw.dropped_files.is_empty());
-            assert!(raw.hovered_files.is_empty());
+            assert_eq!(raw.dropped_files, []);
+            assert_eq!(raw.hovered_files, []);
 
             let ctx = egui::Context::default();
             let mut text = String::new();

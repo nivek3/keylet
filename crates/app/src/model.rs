@@ -636,7 +636,7 @@ mod tests {
         .unwrap();
         assert_eq!(called, ["a", "b", "b", "c"]);
         assert_eq!(plan.deleted, 3);
-        assert!(plan.remaining.is_empty());
+        assert_eq!(plan.remaining, Vec::<String>::new());
         let mut cancelled = DeletePlan::new(vec!["kept".into()]).unwrap();
         cancelled.confirmed = true;
         assert_eq!(

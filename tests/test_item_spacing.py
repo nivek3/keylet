@@ -19,6 +19,11 @@ SOURCE = """impl A {
     #[must_use]
     /// Docs.
     pub(crate) const fn c() {}
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact"
+    )]
+    fn d() {}
 }
 struct S;
 """
@@ -37,6 +42,12 @@ FIXED = """impl A {
     #[must_use]
     /// Docs.
     pub(crate) const fn c() {}
+
+    #[expect(
+        clippy::float_cmp,
+        reason = "exact"
+    )]
+    fn d() {}
 }
 
 struct S;
@@ -61,7 +72,7 @@ class ItemSpacingTests(unittest.TestCase):
         result = self.run_script(str(path))
         self.assertEqual(result.returncode, 1)
         reported = [line.split(":")[1] for line in result.stdout.splitlines() if ": add" in line]
-        self.assertEqual(reported, ["3", "10", "14"])
+        self.assertEqual(reported, ["3", "10", "13", "19"])
 
     def test_fix_inserts_blank_lines_and_is_idempotent(self):
         path = self.write(SOURCE)

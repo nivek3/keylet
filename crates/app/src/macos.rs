@@ -794,8 +794,7 @@ impl ClipboardGate {
             if gate.get() && e.modifierFlags().contains(NSEventModifierFlags::Command) {
                 let key = e
                     .charactersIgnoringModifiers()
-                    .map(|s| s.to_string().to_ascii_lowercase())
-                    .unwrap_or_default();
+                    .map_or_else(String::new, |s| s.to_string().to_ascii_lowercase());
                 if matches!(key.as_str(), "c" | "x" | "v") {
                     return ptr::null_mut();
                 }
@@ -942,11 +941,8 @@ mod tests {
             let _: () = objc2::msg_send![&*board, releaseGlobally];
         }
     }
+
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "the reuse duration must be exactly zero, not approximately"
-    )]
     fn private_data_protection_query_and_fresh_authentication_context() {
         let vault = Vault {
             group: "PREFIX.com.example.Wallet".into(),
@@ -971,7 +967,14 @@ mod tests {
                 Some(vault.group.as_str())
             );
             let context = AuthContext::new("Public configuration test", true);
-            assert_eq!(context.0.touchIDAuthenticationAllowableReuseDuration(), 0.0);
+            // The reuse duration must be exactly zero, not approximately.
+            assert_eq!(
+                context
+                    .0
+                    .touchIDAuthenticationAllowableReuseDuration()
+                    .to_bits(),
+                0.0_f64.to_bits()
+            );
             assert!(context.0.interactionNotAllowed());
             let interactive = AuthContext::new("List saved wallet names", false);
             assert!(!interactive.0.interactionNotAllowed());

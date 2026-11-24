@@ -136,8 +136,8 @@ fn get_key_pair(
 
 #[cfg(debug_assertions)]
 #[pyfunction]
-#[pyo3(signature = (executable, *, name, curve, index=None, path=None, auth_ttl=None))]
-fn _get_key_pair_for_test(
+#[pyo3(name = "_get_key_pair_for_test", signature = (executable, *, name, curve, index=None, path=None, auth_ttl=None))]
+fn get_key_pair_for_test(
     py: Python<'_>,
     executable: &str,
     name: &str,
@@ -268,8 +268,8 @@ fn get_signer_public_key(py: Python<'_>, name: &str) -> PyResult<SignerPublicKey
 
 #[cfg(debug_assertions)]
 #[pyfunction]
-#[pyo3(signature = (executable, *, name, payload, auth_ttl=None))]
-fn _sign_with_signer_for_test(
+#[pyo3(name = "_sign_with_signer_for_test", signature = (executable, *, name, payload, auth_ttl=None))]
+fn sign_with_signer_for_test(
     py: Python<'_>,
     executable: &str,
     name: &str,
@@ -288,8 +288,8 @@ fn _sign_with_signer_for_test(
 
 #[cfg(debug_assertions)]
 #[pyfunction]
-#[pyo3(signature = (executable, *, name))]
-fn _get_signer_public_key_for_test(
+#[pyo3(name = "_get_signer_public_key_for_test", signature = (executable, *, name))]
+fn get_signer_public_key_for_test(
     py: Python<'_>,
     executable: &str,
     name: &str,
@@ -314,9 +314,9 @@ fn keylet(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(get_signer_public_key, module)?)?;
     #[cfg(debug_assertions)]
     {
-        module.add_function(wrap_pyfunction!(_get_key_pair_for_test, module)?)?;
-        module.add_function(wrap_pyfunction!(_sign_with_signer_for_test, module)?)?;
-        module.add_function(wrap_pyfunction!(_get_signer_public_key_for_test, module)?)?;
+        module.add_function(wrap_pyfunction!(get_key_pair_for_test, module)?)?;
+        module.add_function(wrap_pyfunction!(sign_with_signer_for_test, module)?)?;
+        module.add_function(wrap_pyfunction!(get_signer_public_key_for_test, module)?)?;
     }
     Ok(())
 }

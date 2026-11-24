@@ -3606,6 +3606,7 @@ dependencies = [
 name = "wallet-client"
 version = "0.1.0"
 dependencies = [
+ "bs58",
  "core-foundation 0.10.1",
  "k256 0.13.4",
  "libc",

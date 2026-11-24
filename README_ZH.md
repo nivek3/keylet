@@ -160,6 +160,8 @@ Keylet 不为 secp256k1 signer 生成链上地址，请由公钥自行计算。�
 
 **Keylet 只做盲签。**它不解码签名内容，也不做额度、白名单、Swap 校验等交易策略，这些需要由调用方的服务实现。每次认证提示会显示 signer 名称、字节数；内容不超过 32 字节时直接显示内容本身，否则显示 SHA3-256 摘要。会话的第一次提示还会说明免确认窗口。窗口内，持有会话的进程可以签任意内容。请使用资金有限的专用 signer，并尽量缩短窗口。
 
+[Node.js](node/README_ZH.md#使用本地签名密钥) 和 [Python](python/README.md#sign-with-a-local-signer) SDK 把签名会话封装为 `signWithSigner()` 和 `sign_with_signer()`，返回前会校验每个签名。
+
 signer 密钥绑定本机，没有导出命令。执行 `"$keylet" signer delete <名称>` 并认证会永久删除该密钥。
 
 ## 开发与文档

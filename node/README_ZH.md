@@ -56,6 +56,25 @@ const keys = await getKeyPair({
 
 Node 进程退出后会话失效。失败会终止辅助进程，后续显式调用可以重试。删除钱包或锁屏不会撤回已经返回给调用方的密钥。
 
+## 使用本地签名密钥
+
+本地签名密钥（signer）的私钥始终留在 App 中，SDK 只拿到签名。先用 App 的 CLI 创建，例如 `keylet signer create evm --curve secp256k1`，或 `keylet signer derive btc --wallet trading --curve secp256k1 --path "m/84'/0'/0'/0/0"`。详见[本地签名](https://github.com/nivek3/keylet/blob/main/README_ZH.md#本地签名)。
+
+```ts
+import { signWithSigner, getSignerPublicKey } from 'keylet';
+
+const { publicKey } = await getSignerPublicKey('evm'); // 会弹出 macOS 认证
+const signed = await signWithSigner({ name: 'evm', payload: tx.unsignedHash, authTTL: 60 });
+// signed: { name, curve, publicKey, signature, recoveryId }
+```
+
+- `payload` 可以是 `Uint8Array` 或 `0x` hex 字符串。Ed25519 signer 签 1 至 1232 字节原始数据，例如序列化的 Solana 交易 message；secp256k1 signer 只签一个 32 字节 digest，例如 Ethereum 交易哈希、EIP-191 或 EIP-712 哈希、Bitcoin sighash。
+- 返回的 `signature` 为 64 字节。secp256k1 为 `r || s`（low-S），并带 `recoveryId`（0 或 1）：Ethereum 用 `v = 27 + recoveryId` 或 typed transaction 的 parity，Bitcoin 编码为 DER 加 sighash 字节。Ed25519 结果带 `address`，即 Base58 公钥。
+- SDK 返回前会用公钥校验每个签名，格式错误或不匹配的响应会以 `INVALID_HELPER_RESPONSE` 拒绝。
+- **Keylet 只做盲签。**它不解码签名内容，也不做额度、白名单或 Swap 等策略校验，交易需由你的代码构造和检查。
+
+同一 Node 进程内，`name` 和 `authTTL` 相同的调用共用一个签名会话。App 的 **… → Settings → Reuse signer auth** 决定会话在多长时间内免确认（默认 `0`，每次签名都要认证）。`authTTL` 只能缩短这个窗口，不传则跟随 App。窗口内，本进程可以用该 signer 签任意内容。App 返回错误会结束会话，下次调用会启动新会话。参数无效时，会在启动 App 之前以 `Invalid signer request` 拒绝。
+
 ## 运行示例
 
 先构建 SDK，示例通过 `keylet` 公开入口加载构建产物。从仓库的 `node/` 目录执行，`trading` 是 App 中已保存的钱包名称：
@@ -65,6 +84,14 @@ node --import tsx examples/ethers-v5.ts trading 2
 node --import tsx examples/ethers-v6.ts trading 2
 node --import tsx examples/viem.ts trading 2
 node --import tsx examples/ed25519.ts trading "m/44'/501'/2'/0'"
+```
+
+以下示例使用本地签名密钥（`evm` 为 secp256k1，`sol` 为 Ed25519），全程不接触私钥：
+
+```sh
+node --import tsx examples/signer-ethers.ts evm      # EIP-1559 交易和 personal_sign
+node --import tsx examples/signer-solana.ts sol "hello"
+node --import tsx examples/signer-bitcoin.ts evm <32 字节 sighash 的 hex>   # P2WPKH witness
 ```
 
 前三个示例只输出 Ethereum 地址；Ed25519 示例只输出 hex 公钥。`index: 2` 对应 `m/44'/60'/0'/0/2`。Ed25519 的路径由调用方选择，不能把其 seed 传给 ethers `Wallet` 当作对应的 Solana 账户。

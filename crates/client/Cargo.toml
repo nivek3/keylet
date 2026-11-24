@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 wallet-crypto.workspace = true
 
+bs58.workspace = true
 core-foundation.workspace = true
 k256.workspace = true
 libc.workspace = true

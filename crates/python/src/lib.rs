@@ -57,10 +57,11 @@ fn selection(
     Ok(input)
 }
 
-fn read_key_pair(
+/// Runs a blocking client request off the GIL while still handling Python signals.
+fn run<T: Send + 'static>(
     py: Python<'_>,
-    request: impl FnOnce(&AtomicBool) -> Result<wallet_client::KeyPair, &'static str> + Send + 'static,
-) -> PyResult<KeyPair> {
+    request: impl FnOnce(&AtomicBool) -> Result<T, &'static str> + Send + 'static,
+) -> PyResult<T> {
     let pid = process::id();
     // A fork can inherit the parent's helper pipes or a locked mutex.
     if let Err(previous) = CALLER_PID.compare_exchange(0, pid, Ordering::Relaxed, Ordering::Relaxed)
@@ -93,13 +94,20 @@ fn read_key_pair(
             }
         }
     };
-    let pair = result.map_err(|code| {
-        if code == wallet_client::INVALID {
+    result.map_err(|code| {
+        if code == wallet_client::INVALID || code == wallet_client::signer::INVALID_SIGNER {
             PyValueError::new_err(code)
         } else {
             PyRuntimeError::new_err(code)
         }
-    })?;
+    })
+}
+
+fn read_key_pair(
+    py: Python<'_>,
+    request: impl FnOnce(&AtomicBool) -> Result<wallet_client::KeyPair, &'static str> + Send + 'static,
+) -> PyResult<KeyPair> {
+    let pair = run(py, request)?;
     let (public_key, private_key) = pair.into_hex();
     let private_key = Zeroizing::new(private_key);
     Ok(KeyPair {
@@ -144,11 +152,163 @@ fn _get_key_pair_for_test(
     })
 }
 
+/// A signature from a local signer, verified against its public key. Fields are `0x` hex.
+#[pyclass(frozen, module = "keylet", get_all)]
+struct Signature {
+    name: String,
+    curve: String,
+    /// secp256k1: 33-byte compressed key. Ed25519: 32-byte public key.
+    public_key: String,
+    /// 64 bytes. secp256k1: `r || s`, low-S. Ed25519: the standard signature.
+    signature: String,
+    /// secp256k1 only: 0 or 1.
+    recovery_id: Option<u8>,
+    /// Ed25519 only: the Base58 public key (Solana address).
+    address: Option<String>,
+}
+
+#[pymethods]
+impl Signature {
+    fn __repr__(&self) -> String {
+        format!(
+            "Signature(name={:?}, curve={:?}, public_key={:?})",
+            self.name, self.curve, self.public_key
+        )
+    }
+}
+
+/// A local signer's public key.
+#[pyclass(frozen, module = "keylet", get_all)]
+struct SignerPublicKey {
+    name: String,
+    curve: String,
+    public_key: String,
+    address: Option<String>,
+}
+
+#[pymethods]
+impl SignerPublicKey {
+    fn __repr__(&self) -> String {
+        format!(
+            "SignerPublicKey(name={:?}, curve={:?}, public_key={:?})",
+            self.name, self.curve, self.public_key
+        )
+    }
+}
+
+fn sign_input(name: &str, payload: &[u8], auth_ttl: Option<&Bound<'_, PyAny>>) -> PyResult<Value> {
+    let hex: String = payload.iter().map(|byte| format!("{byte:02x}")).collect();
+    let mut input = json!({ "name": name, "payload": format!("0x{hex}") });
+    if let Some(auth_ttl) = auth_ttl {
+        input["authTTL"] = json!(
+            integer(auth_ttl)
+                .map_err(|_| PyValueError::new_err(wallet_client::signer::INVALID_SIGNER))?
+        );
+    }
+    Ok(input)
+}
+
+fn signature(value: wallet_client::signer::Signature) -> Signature {
+    Signature {
+        name: value.name,
+        curve: value.curve.name().to_owned(),
+        public_key: value.public_key,
+        signature: value.signature,
+        recovery_id: value.recovery_id,
+        address: value.address,
+    }
+}
+
+fn signer_public_key(value: wallet_client::signer::SignerPublicKey) -> SignerPublicKey {
+    SignerPublicKey {
+        name: value.name,
+        curve: value.curve.name().to_owned(),
+        public_key: value.public_key,
+        address: value.address,
+    }
+}
+
+/// Sign `payload` (bytes) with a local signer in the Keylet app.
+///
+/// Ed25519 signs 1 to 1232 raw bytes; secp256k1 signs exactly one 32-byte digest.
+/// Keylet signs blindly. Calls with the same name and auth_ttl share one session.
+#[pyfunction]
+#[pyo3(signature = (*, name, payload, auth_ttl=None))]
+fn sign_with_signer(
+    py: Python<'_>,
+    name: &str,
+    payload: &[u8],
+    auth_ttl: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Signature> {
+    let input = sign_input(name, payload, auth_ttl)?;
+    run(py, move |cancelled| {
+        wallet_client::signer::sign(&input, || cancelled.load(Ordering::Relaxed))
+    })
+    .map(signature)
+}
+
+/// Read a local signer's public key. The app asks for macOS authentication.
+#[pyfunction]
+#[pyo3(signature = (*, name))]
+fn get_signer_public_key(py: Python<'_>, name: &str) -> PyResult<SignerPublicKey> {
+    let input = json!({ "name": name });
+    run(py, move |cancelled| {
+        wallet_client::signer::public_key(&input, || cancelled.load(Ordering::Relaxed))
+    })
+    .map(signer_public_key)
+}
+
+#[cfg(debug_assertions)]
+#[pyfunction]
+#[pyo3(signature = (executable, *, name, payload, auth_ttl=None))]
+fn _sign_with_signer_for_test(
+    py: Python<'_>,
+    executable: &str,
+    name: &str,
+    payload: &[u8],
+    auth_ttl: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Signature> {
+    let input = sign_input(name, payload, auth_ttl)?;
+    let executable = executable.into();
+    run(py, move |cancelled| {
+        wallet_client::signer::sign_for_test(&input, executable, || {
+            cancelled.load(Ordering::Relaxed)
+        })
+    })
+    .map(signature)
+}
+
+#[cfg(debug_assertions)]
+#[pyfunction]
+#[pyo3(signature = (executable, *, name))]
+fn _get_signer_public_key_for_test(
+    py: Python<'_>,
+    executable: &str,
+    name: &str,
+) -> PyResult<SignerPublicKey> {
+    let input = json!({ "name": name });
+    let executable = executable.into();
+    run(py, move |cancelled| {
+        wallet_client::signer::public_key_for_test(&input, executable, || {
+            cancelled.load(Ordering::Relaxed)
+        })
+    })
+    .map(signer_public_key)
+}
+
 #[pymodule]
 fn keylet(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<KeyPair>()?;
+    module.add_class::<Signature>()?;
+    module.add_class::<SignerPublicKey>()?;
     module.add_function(wrap_pyfunction!(get_key_pair, module)?)?;
+    module.add_function(wrap_pyfunction!(sign_with_signer, module)?)?;
+    module.add_function(wrap_pyfunction!(get_signer_public_key, module)?)?;
     #[cfg(debug_assertions)]
-    module.add_function(wrap_pyfunction!(_get_key_pair_for_test, module)?)?;
+    {
+        module.add_function(wrap_pyfunction!(_get_key_pair_for_test, module)?)?;
+        module.add_function(wrap_pyfunction!(_sign_with_signer_for_test, module)?)?;
+        module.add_function(wrap_pyfunction!(_get_signer_public_key_for_test, module)?)?;
+    }
     Ok(())
 }

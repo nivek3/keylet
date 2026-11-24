@@ -49,21 +49,19 @@ impl Failure {
             Self::Settings => {
                 "Unable to read authentication settings. Open Settings and save an option."
             }
-            Self::Mnemonic => "Check the English recovery words, their order, and checksum.",
+            Self::Mnemonic => "Check the seed phrase words and their order.",
             Self::Address => {
-                "The phrase, passphrase, and path do not match the expected Ethereum address."
+                "The seed phrase, passphrase, or path doesn't match this Ethereum address."
             }
             Self::PublicKey => {
-                "The phrase, passphrase, and path do not match the expected Ed25519 public key."
+                "The seed phrase, passphrase, or path doesn't match this Ed25519 public key."
             }
             Self::Duplicate => "That name already exists. The existing wallet was not changed.",
             Self::Configuration => {
                 "The app's signing or secure-input configuration is invalid. Rebuild with your Personal Team."
             }
             Self::Authentication => "macOS authentication was not completed. Nothing was unlocked.",
-            _ => {
-                "Check the wallet details, derivation path, and matching passphrase fields. Nothing was saved."
-            }
+            _ => "Check the name, path, and passphrase. Nothing was saved.",
         }
     }
 }

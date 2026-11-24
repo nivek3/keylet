@@ -22,7 +22,7 @@ const SEED_CLIPBOARD_NOTICE: &str = "Clears after 60s while open. Other apps may
 const MIN_RECOVERY_CARD_HEIGHT: f32 = 0.0;
 /// Height the word grid's rows are sized against.
 const WORD_GRID_HEIGHT: f32 = 156.0;
-const DELETE_INDEX_WARNING: &str = "A wallet was deleted from Keychain, but the local name list could not be updated. Use Sync from Keychain to repair it.";
+const DELETE_INDEX_WARNING: &str = "A wallet was deleted from Keychain, but the wallet list could not be updated. Use Sync from Keychain to repair it.";
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Stage {
@@ -400,12 +400,12 @@ fn phrase_actions(ui: &mut egui::Ui, shown: bool, copied: bool) -> Option<Phrase
         vec![
             (Action::secondary("Hide"), PhraseAction::Hide),
             (
-                Action::primary(if copied { "Copied" } else { "Copy seed phrase" }),
+                Action::primary(if copied { "Copied" } else { "Copy" }),
                 PhraseAction::Copy,
             ),
         ]
     } else {
-        vec![(Action::primary("Show seed phrase"), PhraseAction::Show)]
+        vec![(Action::primary("Show"), PhraseAction::Show)]
     };
     fn buttons<'a>(list: &[(theme::Action<'a>, PhraseAction)]) -> Vec<theme::Action<'a>> {
         list.iter().map(|(action, _)| *action).collect()
@@ -449,7 +449,7 @@ fn filter_input(raw: &mut egui::RawInput, blocked: bool) {
 fn saved_message(indexed: bool, output: Result<()>) -> String {
     let mut message = String::new();
     if !indexed {
-        message.push_str("Wallet saved in Keychain, but the local list could not be updated. Use Sync from Keychain to repair it.");
+        message.push_str("Wallet saved in Keychain, but the wallet list could not be updated. Use Sync from Keychain to repair it.");
     }
     if output.is_err() {
         if !message.is_empty() {
@@ -473,7 +473,15 @@ fn discard_wallet_dialog(ctx: &egui::Context, creating: bool) -> Option<bool> {
             ui.set_width(380.0);
             theme::alert(
                 ui,
-                |ui| theme::alert_icon(ui, theme::ACCENT, if creating { "+" } else { "↓" }, None),
+                |ui| {
+                    let choice = if creating {
+                        theme::WalletChoice::Create
+                    } else {
+                        theme::WalletChoice::Import
+                    };
+                    let glyph = if creating { "+" } else { "↓" };
+                    theme::alert_icon(ui, theme::choice_tile(&choice), glyph, None)
+                },
                 if creating {
                     "Discard wallet setup?"
                 } else {
@@ -595,7 +603,7 @@ impl WalletApp {
             Ok(entries) => self.wallets = entries,
             Err(error) => {
                 self.message = format!(
-                    "Unable to load the local name list ({}). Use Sync from Keychain to rebuild it.",
+                    "Unable to load the wallet list ({}). Use Sync from Keychain to rebuild it.",
                     error.code()
                 )
             }
@@ -616,7 +624,7 @@ impl WalletApp {
             }
             Err(error) => {
                 self.message = format!(
-                    "Name synchronization stopped ({}). The previous list was kept.",
+                    "Sync stopped ({}). The previous list was kept.",
                     error.code()
                 )
             }
@@ -719,12 +727,12 @@ impl WalletApp {
             }
             Stage::Secrets => {
                 if self.creating {
-                    "Create wallet"
+                    "New wallet"
                 } else {
                     "Import wallet"
                 }
             }
-            Stage::Reveal | Stage::Backup => "Back up seed phrase",
+            Stage::Reveal | Stage::Backup => "Seed phrase",
             Stage::Confirm => "Verify backup",
             Stage::ViewPhrase => "Seed phrase",
             Stage::Success => {
@@ -786,10 +794,7 @@ impl WalletApp {
                             }
                             Err(_) => self.message = "Unable to save settings.".into(),
                         },
-                        Err(_) => {
-                            self.message =
-                                "Enter a valid whole number of minutes (0 or greater).".into()
-                        }
+                        Err(_) => self.message = "Enter whole minutes, 0 or more.".into(),
                     }
                 }
             }
@@ -809,9 +814,9 @@ impl WalletApp {
                 theme::public_field(
                     ui,
                     if self.curve == Curve::Ed25519 {
-                        "Hardened derivation path"
+                        "Hardened path"
                     } else {
-                        "Derivation path"
+                        "Path"
                     },
                     &mut self.path,
                     128,
@@ -820,9 +825,9 @@ impl WalletApp {
                     theme::public_field(
                         ui,
                         if self.curve == Curve::Secp256k1 {
-                            "Original Ethereum address"
+                            "Ethereum address"
                         } else {
-                            "Original Ed25519 public key (0x hex, 32 bytes)"
+                            "Ed25519 public key (hex)"
                         },
                         &mut self.expected,
                         66,
@@ -855,17 +860,17 @@ impl WalletApp {
                     }
                     secret_field(
                         ui,
-                        "BIP-39 passphrase (optional)",
+                        "Passphrase (optional)",
                         "passphrase",
                         &mut self.passphrase,
                     );
                     secret_field(
                         ui,
-                        "Confirm BIP-39 passphrase",
+                        "Confirm passphrase",
                         "repeat-passphrase",
                         &mut self.repeated_passphrase,
                     );
-                    ui.checkbox(&mut self.no_passphrase, "I use no BIP-39 passphrase");
+                    ui.checkbox(&mut self.no_passphrase, "No passphrase");
                     theme::hint(ui, "A BIP-39 passphrase changes the wallet. Spaces count.");
                 } else {
                     ui.label("Focus this window to enter wallet secrets.");
@@ -873,11 +878,7 @@ impl WalletApp {
                 let (next, cancel) = theme::actions(
                     ui,
                     "Cancel",
-                    if self.creating {
-                        "Continue to backup"
-                    } else {
-                        "Verify and save"
-                    },
+                    if self.creating { "Continue" } else { "Import" },
                 );
                 if next
                     && focused
@@ -906,7 +907,7 @@ impl WalletApp {
                     },
                 );
                 ui.add_space(16.0);
-                let (reveal, cancel) = backup_buttons(ui, None, "Show seed phrase");
+                let (reveal, cancel) = backup_buttons(ui, None, "Show");
                 if reveal || card.inner.clicked() {
                     self.message.clear();
                     self.stage = Stage::Backup;
@@ -938,7 +939,7 @@ impl WalletApp {
                 let copy_label = if self.clipboard.has_copy() {
                     "Copied"
                 } else {
-                    "Copy seed phrase"
+                    "Copy"
                 };
                 let (next, cancel, copy) = {
                     let mut copy = false;
@@ -1016,12 +1017,7 @@ impl WalletApp {
                     ui.label(egui::RichText::new(&self.identifier).monospace());
                 }
                 ui.add_space(12.0);
-                let label = if self.cli_import {
-                    "Done"
-                } else {
-                    "Back to wallets"
-                };
-                let (_, done) = theme::button_bar(ui, &[], &[theme::Action::primary(label)]);
+                let (_, done) = theme::button_bar(ui, &[], &[theme::Action::primary("Done")]);
                 if done[0] {
                     if self.cli_import {
                         ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -1833,11 +1829,7 @@ mod tests {
                             let bounds = ui.max_rect();
                             let mut copy = false;
                             let row = ui.scope(|ui| {
-                                backup_buttons(
-                                    ui,
-                                    Some(("Copy seed phrase", true, &mut copy)),
-                                    "Continue",
-                                )
+                                backup_buttons(ui, Some(("Copy", true, &mut copy)), "Continue")
                             });
                             assert!(bounds.contains_rect(row.response.rect), "{width}");
                         });
@@ -1856,7 +1848,7 @@ mod tests {
                     .unwrap_or_else(|| panic!("{label} missing at {width}"))
             };
             let row = center_y("Cancel");
-            for label in ["Copy seed phrase", "Continue"] {
+            for label in ["Copy", "Continue"] {
                 assert!((center_y(label) - row).abs() < 1.0, "{label} at {width}");
             }
         }

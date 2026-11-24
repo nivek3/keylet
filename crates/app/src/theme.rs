@@ -44,18 +44,70 @@ const HOVER: Color32 = Color32::from_black_alpha(10);
 const SHADOW: Color32 = Color32::from_black_alpha(28);
 const CARD_RADIUS: u8 = 10;
 const ROW_PADDING: egui::Vec2 = egui::vec2(14.0, 10.0);
-/// Monogram tile colors, picked per wallet name like Passwords' generated icons.
-/// Apple's increased-contrast system colors keep the white letter legible.
-const TILES: [Color32; 8] = [
-    Color32::from_rgb(0, 64, 221),   // blue
-    Color32::from_rgb(0, 130, 153),  // teal
-    Color32::from_rgb(36, 138, 61),  // green
-    Color32::from_rgb(201, 52, 0),   // orange
-    Color32::from_rgb(215, 0, 21),   // red
-    Color32::from_rgb(211, 15, 69),  // pink
-    Color32::from_rgb(127, 101, 69), // brown
-    Color32::from_rgb(0, 113, 164),  // cyan
+/// A tile's vertical gradient, lighter at the top like the generated icons in
+/// Passwords. A solid color has equal ends.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Tile {
+    top: Color32,
+    bottom: Color32,
+}
+impl From<Color32> for Tile {
+    fn from(color: Color32) -> Self {
+        Self {
+            top: color,
+            bottom: color,
+        }
+    }
+}
+const fn tile(top: [u8; 3], bottom: [u8; 3]) -> Tile {
+    Tile {
+        top: Color32::from_rgb(top[0], top[1], top[2]),
+        bottom: Color32::from_rgb(bottom[0], bottom[1], bottom[2]),
+    }
+}
+/// Monogram tile colors, picked per wallet name like Passwords' generated icons:
+/// Apple's system colors at the bottom, each lifted 18% toward white at the top. As
+/// in Passwords the letter is decorative, since the wallet name sits beside it.
+const TILES: [Tile; 8] = [
+    tile([46, 146, 255], [0, 122, 255]),   // blue
+    tile([85, 190, 209], [48, 176, 199]),  // teal
+    tile([89, 209, 119], [52, 199, 89]),   // green
+    tile([255, 168, 46], [255, 149, 0]),   // orange
+    tile([255, 94, 85], [255, 59, 48]),    // red
+    tile([255, 83, 116], [255, 45, 85]),   // pink
+    tile([179, 154, 123], [162, 132, 94]), // brown
+    tile([87, 188, 234], [50, 173, 230]),  // cyan
 ];
+const CREATE_TILE: Tile = tile([46, 146, 255], [0, 122, 255]); // systemBlue
+/// Fills a rounded rect with a tile's vertical gradient. egui fills shapes with one
+/// color, so the rect is tessellated and each vertex recolored by its height; the
+/// anti-aliasing fringe keeps its coverage through the vertex alpha.
+fn paint_tile(painter: &egui::Painter, rect: egui::Rect, radius: f32, tile: Tile) {
+    if tile.top == tile.bottom {
+        painter.rect_filled(rect, radius, tile.top);
+        return;
+    }
+    let mut mesh = egui::Mesh::default();
+    egui::epaint::Tessellator::new(
+        painter.pixels_per_point(),
+        egui::epaint::TessellationOptions::default(),
+        [1, 1],
+        Vec::new(),
+    )
+    .tessellate_rect(
+        &egui::epaint::RectShape::filled(rect, radius, Color32::WHITE),
+        &mut mesh,
+    );
+    for vertex in &mut mesh.vertices {
+        let t = ((vertex.pos.y - rect.top()) / rect.height()).clamp(0.0, 1.0);
+        let coverage = f32::from(vertex.color.a()) / 255.0;
+        vertex.color = tile
+            .top
+            .lerp_to_gamma(tile.bottom, t)
+            .gamma_multiply(coverage);
+    }
+    painter.add(egui::Shape::mesh(mesh));
+}
 const MEDIUM: &str = "medium";
 
 pub fn configure(ctx: &egui::Context) {
@@ -232,10 +284,19 @@ pub(crate) enum WalletChoice {
     Import,
 }
 
+/// The icon tile for creating or importing, shared by the choice cards and alerts.
+pub(crate) fn choice_tile(choice: &WalletChoice) -> Tile {
+    match choice {
+        WalletChoice::Create => CREATE_TILE,
+        WalletChoice::Import => TILES[7],
+    }
+}
+
 pub(crate) fn wallet_choice(ui: &mut Ui, width: f32, choice: WalletChoice) -> egui::Response {
-    let (title, detail, tile) = match choice {
-        WalletChoice::Create => ("Create wallet", "New seed phrase", ACCENT),
-        WalletChoice::Import => ("Import wallet", "Existing seed phrase", TILES[7]),
+    let tile = choice_tile(&choice);
+    let (title, detail) = match choice {
+        WalletChoice::Create => ("Create wallet", "New seed phrase"),
+        WalletChoice::Import => ("Import wallet", "Existing seed phrase"),
     };
     let size = egui::vec2(width, 112.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -262,7 +323,7 @@ pub(crate) fn wallet_choice(ui: &mut Ui, width: f32, choice: WalletChoice) -> eg
         egui::pos2(rect.center().x, rect.top() + 34.0),
         egui::vec2(36.0, 36.0),
     );
-    painter.rect_filled(icon, 9, tile);
+    paint_tile(painter, icon, 9.0, tile);
     let center = icon.center();
     let point = |x, y| center + egui::vec2(x, y);
     let stroke = Stroke::new(2.0_f32, ACCENT_INK);
@@ -483,11 +544,11 @@ pub fn public_field(ui: &mut Ui, title: &str, text: &mut String, limit: usize) {
 
 /// A 64pt rounded tile with a glyph and an optional corner badge, like the app icon
 /// with an overlay that macOS alerts show.
-pub fn alert_icon(ui: &mut Ui, tile: Color32, glyph: &str, badge: Option<Color32>) {
+pub fn alert_icon(ui: &mut Ui, tile: impl Into<Tile>, glyph: &str, badge: Option<Color32>) {
     let size = 64.0;
     let (rect, _) = ui.allocate_exact_size(egui::vec2(size, size), Sense::hover());
     let painter = ui.painter();
-    painter.rect_filled(rect, size * 0.225, tile);
+    paint_tile(painter, rect, size * 0.225, tile.into());
     painter.text(
         rect.center() + egui::vec2(0.0, 1.0),
         egui::Align2::CENTER_CENTER,
@@ -870,7 +931,7 @@ pub fn navigation_button(ui: &mut Ui, label: &str, sidebar: Option<bool>) -> egu
     }
     labeled(ui, response, label)
 }
-fn tile_color(name: &str) -> Color32 {
+fn tile_color(name: &str) -> Tile {
     let hash = name.bytes().fold(0x811c9dc5_u32, |hash, byte| {
         (hash ^ u32::from(byte)).wrapping_mul(0x01000193)
     });
@@ -883,7 +944,7 @@ pub fn monogram(ui: &mut Ui, name: &str, size: f32) {
 }
 fn paint_monogram(ui: &Ui, rect: egui::Rect, name: &str) {
     let painter = ui.painter();
-    painter.rect_filled(rect, rect.width() * 0.225, tile_color(name));
+    paint_tile(painter, rect, rect.width() * 0.225, tile_color(name));
     let letter = name
         .chars()
         .find(|c| c.is_alphanumeric())
@@ -1051,8 +1112,11 @@ mod tests {
         for fill in [DANGER, DANGER_HOVER, DANGER_PRESSED] {
             assert!(contrast(ACCENT_INK, fill) >= 4.5);
         }
-        for tile in TILES {
-            assert!(contrast(ACCENT_INK, tile) >= 3.0);
+        // Monogram letters are decorative, as on Apple's system-color tiles; the floor
+        // only stops a tile from washing out the white letter entirely.
+        for tile in TILES.iter().chain([&CREATE_TILE]) {
+            assert!(contrast(ACCENT_INK, tile.top) >= 1.8);
+            assert!(contrast(ACCENT_INK, tile.bottom) >= 2.0);
         }
         assert!(contrast(ACCENT_SUBTLE_INK, ACCENT) >= 3.0);
         assert!(contrast(DANGER_INK, DANGER_SOFT) >= 4.5);

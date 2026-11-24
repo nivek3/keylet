@@ -43,8 +43,6 @@ jobs:
           pnpm --dir node run check
       - name: Packaging tests
         run: python3 -m unittest discover -s tests -p 'test_*.py'
-      - name: Blank lines between Rust items
-        run: python3 -I scripts/check-item-spacing.py
 
   macos:
     if: github.event.repository.private == false

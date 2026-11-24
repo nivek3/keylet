@@ -650,9 +650,16 @@ pub fn field_row(
     let line = first_line.max(caption.size().y).max(18.0);
     let value_offset = (line - first_line) / 2.0;
     let height = (value_offset + value.size().y).max(line) + 2.0 * ROW_PADDING.y;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::click());
+    // Only rows with a trailing action are buttons; the rest are plain read-only rows.
+    let interactive = trailing.is_some();
+    let sense = if interactive {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), sense);
     let painter = ui.painter();
-    if response.hovered() {
+    if interactive && response.hovered() {
         painter.rect_filled(rect.shrink(3.0), 7, HOVER);
     }
     let top = rect.top() + ROW_PADDING.y;
@@ -681,6 +688,10 @@ pub fn field_row(
             MUTED
         };
         painter.galley(pos, trailing, tint);
+    }
+    if !interactive {
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, label));
+        return response;
     }
     focus_ring(ui, rect.shrink(1.0), response.has_focus());
     response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
@@ -1204,6 +1215,20 @@ mod tests {
                 },
             );
         }
+    }
+    #[test]
+    fn field_rows_without_an_action_are_not_buttons() {
+        let ctx = egui::Context::default();
+        configure(&ctx);
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let plain = field_row(ui, "Ethereum", RowValue::Muted("Not synced"), None);
+                assert!(!plain.sense.senses_click());
+                assert!(!plain.sense.is_focusable());
+                let action = field_row(ui, "Seed phrase", RowValue::Text("••••"), Some("Show"));
+                assert!(action.sense.senses_click());
+            });
+        });
     }
     #[test]
     fn system_font_and_form_render_without_overflow() {

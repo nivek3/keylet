@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 pub use wallet_crypto::Curve;
-use wallet_crypto::{DeriveError, PublicKey};
+use wallet_crypto::{DeriveError, PublicKey, Seed};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub type Result<T> = std::result::Result<T, Failure>;
@@ -204,49 +204,49 @@ impl WalletSummary {
             saved_accounts: Vec::new(),
         }
     }
-    pub fn from_wallet(name: &str, wallet: &StoredWallet) -> Result<Self> {
-        let eth = derive(
-            wallet,
-            &KeyRequest {
-                name: name.into(),
-                curve: Curve::Secp256k1,
-                path: DEFAULT_ETH_PATH.into(),
-            },
-            None,
-        )?;
-        let sol = derive(
-            wallet,
-            &KeyRequest {
-                name: name.into(),
-                curve: Curve::Ed25519,
-                path: DEFAULT_SOL_PATH.into(),
-            },
-            None,
-        )?;
+    /// Rebuilds the display cache from a Keychain read. `remembered` paths are
+    /// re-derived from the wallet, never copied, so a stale or tampered catalog entry
+    /// cannot survive a read; paths that no longer validate are dropped.
+    pub fn from_wallet(
+        name: &str,
+        wallet: &StoredWallet,
+        remembered: &[SavedAccount],
+    ) -> Result<Self> {
+        Self::from_seed(name, &WalletSeed::new(wallet)?, remembered)
+    }
+    /// As `from_wallet`, reusing a seed already computed for this wallet.
+    pub fn from_seed(name: &str, seed: &WalletSeed, remembered: &[SavedAccount]) -> Result<Self> {
+        let derive = |curve, path: String| {
+            seed.derive(
+                &KeyRequest {
+                    name: name.into(),
+                    curve,
+                    path,
+                },
+                None,
+            )
+        };
+        let eth = derive(Curve::Secp256k1, DEFAULT_ETH_PATH.into())?;
+        let sol = derive(Curve::Ed25519, DEFAULT_SOL_PATH.into())?;
         let accounts = |curve| {
             (0..CACHED_ACCOUNTS)
-                .map(|index| {
-                    derive(
-                        wallet,
-                        &KeyRequest {
-                            name: name.into(),
-                            curve,
-                            path: account_path(curve, index),
-                        },
-                        None,
-                    )
-                    .map(|pair| pair.address)
-                })
+                .map(|index| derive(curve, account_path(curve, index)).map(|pair| pair.address))
                 .collect::<Result<Vec<_>>>()
         };
-        Ok(Self {
+        let mut summary = Self {
             name: name.into(),
             ethereum_address: Some(eth.identifier),
             solana_address: Some(sol.address),
             ethereum_accounts: accounts(Curve::Secp256k1)?,
             solana_accounts: accounts(Curve::Ed25519)?,
             saved_accounts: Vec::new(),
-        })
+        };
+        for saved in remembered {
+            if let Ok(pair) = derive(saved.curve, saved.path.clone()) {
+                summary.remember(saved.curve, &saved.path, &pair.address);
+            }
+        }
+        Ok(summary)
     }
     /// Remembers an authenticated derivation so its address shows without a key read
     /// next time. The oldest entry is dropped beyond `MAX_SAVED_ACCOUNTS`.
@@ -379,12 +379,52 @@ pub fn hex(bytes: &[u8]) -> String {
 pub fn normalize(text: &str) -> Zeroizing<String> {
     Zeroizing::new(text.split_whitespace().collect::<Vec<_>>().join(" "))
 }
-pub fn derive(
-    wallet: &StoredWallet,
-    request: &KeyRequest,
-    expected: Option<&str>,
-) -> Result<Derived> {
-    request.validate()?;
+/// A stored wallet's BIP-39 seed, computed once for several derivations.
+pub struct WalletSeed(Seed);
+impl WalletSeed {
+    pub fn new(wallet: &StoredWallet) -> Result<Self> {
+        check_wallet(wallet)?;
+        Seed::new(&wallet.mnemonic, &wallet.passphrase)
+            .map(Self)
+            .map_err(derive_failure)
+    }
+    pub fn derive(&self, request: &KeyRequest, expected: Option<&str>) -> Result<Derived> {
+        request.validate()?;
+        if let Some(expected) = expected {
+            request.validate_identifier(expected)?;
+        }
+        let (key, public) = self
+            .0
+            .derive(request.curve, &request.path)
+            .map_err(derive_failure)?;
+        let (public_key, address) = match public {
+            PublicKey::Secp256k1(public) => (
+                hex(&public.compressed_bytes()),
+                hex(&public.ethereum_address()),
+            ),
+            PublicKey::Ed25519(public) => (hex(&public), bs58::encode(public).into_string()),
+        };
+        let identifier = if request.curve == Curve::Secp256k1 {
+            address.clone()
+        } else {
+            public_key.clone()
+        };
+        if expected.is_some_and(|value| !identifier.eq_ignore_ascii_case(value)) {
+            return Err(if request.curve == Curve::Secp256k1 {
+                Failure::Address
+            } else {
+                Failure::PublicKey
+            });
+        }
+        Ok(Derived {
+            key,
+            public_key,
+            identifier,
+            address,
+        })
+    }
+}
+fn check_wallet(wallet: &StoredWallet) -> Result<()> {
     if wallet.version != 1 {
         return Err(Failure::Corrupt);
     }
@@ -392,44 +432,26 @@ pub fn derive(
     {
         return Err(Failure::Input);
     }
+    Ok(())
+}
+fn derive_failure(error: DeriveError) -> Failure {
+    match error {
+        DeriveError::InvalidMnemonic => Failure::Mnemonic,
+        DeriveError::InvalidPath | DeriveError::DerivationFailed => Failure::Derivation,
+    }
+}
+pub fn derive(
+    wallet: &StoredWallet,
+    request: &KeyRequest,
+    expected: Option<&str>,
+) -> Result<Derived> {
+    // Cheap checks first, in the original order, before the PBKDF2 stretch.
+    request.validate()?;
+    check_wallet(wallet)?;
     if let Some(expected) = expected {
         request.validate_identifier(expected)?;
     }
-    let (key, public) = wallet_crypto::derive(
-        &wallet.mnemonic,
-        &wallet.passphrase,
-        request.curve,
-        &request.path,
-    )
-    .map_err(|error| match error {
-        DeriveError::InvalidMnemonic => Failure::Mnemonic,
-        DeriveError::InvalidPath | DeriveError::DerivationFailed => Failure::Derivation,
-    })?;
-    let (public_key, address) = match public {
-        PublicKey::Secp256k1(public) => (
-            hex(&public.compressed_bytes()),
-            hex(&public.ethereum_address()),
-        ),
-        PublicKey::Ed25519(public) => (hex(&public), bs58::encode(public).into_string()),
-    };
-    let identifier = if request.curve == Curve::Secp256k1 {
-        address.clone()
-    } else {
-        public_key.clone()
-    };
-    if expected.is_some_and(|value| !identifier.eq_ignore_ascii_case(value)) {
-        return Err(if request.curve == Curve::Secp256k1 {
-            Failure::Address
-        } else {
-            Failure::PublicKey
-        });
-    }
-    Ok(Derived {
-        key,
-        public_key,
-        identifier,
-        address,
-    })
+    WalletSeed::new(wallet)?.derive(request, expected)
 }
 pub fn check_passphrase(passphrase: &str, confirmation: &str, empty: bool) -> Result<()> {
     if passphrase.len() > 4096 || confirmation.len() > 4096 {
@@ -586,6 +608,55 @@ mod tests {
         );
     }
     #[test]
+    fn remembered_accounts_are_rederived_not_copied() {
+        let stored: StoredWallet = serde_json::from_str(&format!(
+            r#"{{"version":1,"mnemonic":"{WORDS}","passphrase":""}}"#
+        ))
+        .unwrap();
+        let saved = |curve, path: &str, address: &str| SavedAccount {
+            curve,
+            path: path.into(),
+            address: address.into(),
+        };
+        let address = |curve, path| {
+            derive(&stored, &request(curve, path), None)
+                .unwrap()
+                .address
+        };
+        let eth_path = "m/44'/60'/0'/0/10";
+        let sol_path = "m/44'/501'/12'/0'";
+        let remembered = [
+            // A stale or tampered address is replaced by the derived one.
+            saved(Curve::Secp256k1, eth_path, &format!("0x{}", "0".repeat(40))),
+            // A path that no longer validates is dropped.
+            saved(
+                Curve::Ed25519,
+                "m/44'/501'/2'/0",
+                "oeYf6KAJkLYhBuR8CiGc6L4D4Xtfepr85fuDgA9kq96",
+            ),
+            // A path now covered by the index cache is not duplicated.
+            saved(
+                Curve::Secp256k1,
+                "m/44'/60'/0'/0/2",
+                "0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+            ),
+            saved(Curve::Ed25519, sol_path, &address(Curve::Ed25519, sol_path)),
+        ];
+        let summary = WalletSummary::from_wallet("public-test", &stored, &remembered).unwrap();
+        assert_eq!(
+            summary.saved_accounts,
+            [
+                saved(
+                    Curve::Secp256k1,
+                    eth_path,
+                    &address(Curve::Secp256k1, eth_path)
+                ),
+                saved(Curve::Ed25519, sol_path, &address(Curve::Ed25519, sol_path)),
+            ]
+        );
+        assert!(summary.validate().is_ok());
+    }
+    #[test]
     fn stored_wallet_and_independent_public_vectors() {
         let stored: StoredWallet = serde_json::from_str(&format!(
             r#"{{"version":1,"mnemonic":"{WORDS}","passphrase":""}}"#
@@ -600,7 +671,7 @@ mod tests {
         assert_eq!(pair.key.len(), 32);
         assert_eq!(pair.public_key.len(), 68);
         assert!(pair.public_key.starts_with("0x02") || pair.public_key.starts_with("0x03"));
-        let summary = WalletSummary::from_wallet("public-test", &stored).unwrap();
+        let summary = WalletSummary::from_wallet("public-test", &stored, &[]).unwrap();
         assert_eq!(
             summary.ethereum_address.as_deref(),
             Some("0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266")

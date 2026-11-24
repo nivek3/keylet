@@ -311,9 +311,6 @@ fn recovery_words(ui: &mut egui::Ui, phrase: &str, min_height: f32, color: egui:
     });
 }
 
-/// The seed phrase card body: the words once revealed, otherwise numbered
-/// placeholders that reveal the phrase when clicked. `height` keeps the card the
-/// same size across reveal and hide.
 /// The backup steps' button row: an optional extra action on the leading edge;
 /// Cancel and the primary action on the trailing edge. Returns `(primary, cancel)`.
 fn backup_buttons(
@@ -340,6 +337,9 @@ fn backup_buttons(
     (trail[1], trail[0])
 }
 
+/// The seed phrase card body: the words once revealed, otherwise numbered
+/// placeholders that reveal the phrase when clicked. `height` keeps the card the
+/// same size across reveal and hide.
 fn phrase_card(ui: &mut egui::Ui, phrase: Option<&str>, height: f32) -> egui::Response {
     let padding = egui::Margin::same(14);
     let inset = padding.sum();
@@ -603,18 +603,8 @@ impl WalletApp {
     }
     fn sync_wallets(&mut self) {
         self.prepare_authentication();
-        // Keychain rebuilds the derived caches; remembered custom paths carry over.
-        let wallets = &self.wallets;
-        let summaries = || {
-            self.vault.summaries().map(|mut entries| {
-                for entry in &mut entries {
-                    if let Some(old) = wallets.iter().find(|old| old.name == entry.name) {
-                        entry.saved_accounts = old.saved_accounts.clone();
-                    }
-                }
-                entries
-            })
-        };
+        // Keychain rebuilds the derived caches and re-derives remembered paths.
+        let summaries = || self.vault.summaries(&self.wallets);
         match Catalog::for_group(&self.vault.group).and_then(|c| c.sync(summaries)) {
             Ok(entries) => {
                 self.wallets = entries;
@@ -689,7 +679,7 @@ impl WalletApp {
     fn save(&mut self) -> Result<()> {
         self.prepare_authentication();
         let wallet = self.pending.as_ref().ok_or(Failure::Input)?.for_save()?;
-        let summary = WalletSummary::from_wallet(&self.name, wallet)?;
+        let summary = WalletSummary::from_wallet(&self.name, wallet, &[])?;
         self.vault.insert(&self.name, wallet)?;
         let indexed = Catalog::for_group(&self.vault.group)
             .and_then(|c| c.upsert(summary.clone()))

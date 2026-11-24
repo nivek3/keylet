@@ -2,7 +2,7 @@ use super::{WalletApp, curve_selector};
 use crate::catalog::Catalog;
 use crate::{
     macos,
-    model::{Curve, DEFAULT_ETH_PATH, Failure, KeyRequest, Result, WalletSummary, derive},
+    model::{Curve, DEFAULT_ETH_PATH, Failure, KeyRequest, Result, WalletSeed, WalletSummary},
     theme,
 };
 use eframe::egui;
@@ -260,12 +260,13 @@ impl WalletApp {
                 );
                 let context = macos::AuthContext::new(&reason, false);
                 // Refresh the wallet's cached accounts from the same read, so wallets
-                // saved before caching fill indices 0–9, and remember this address.
+                // saved before caching fill indices 0–9, remembered paths are re-derived,
+                // and this address is remembered. One seed serves every derivation.
                 let previous = self.account_view.cached.saved_accounts.clone();
                 match self.vault.read(&request.name, &context).and_then(|wallet| {
-                    let address = derive(&wallet, &request, None)?.address;
-                    let mut summary = WalletSummary::from_wallet(&request.name, &wallet)?;
-                    summary.saved_accounts = previous;
+                    let seed = WalletSeed::new(&wallet)?;
+                    let address = seed.derive(&request, None)?.address;
+                    let mut summary = WalletSummary::from_seed(&request.name, &seed, &previous)?;
                     summary.remember(request.curve, &request.path, &address);
                     Ok((address, summary))
                 }) {
@@ -291,7 +292,7 @@ impl WalletApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::StoredWallet;
+    use crate::model::{StoredWallet, derive};
 
     #[test]
     fn editing_account_index_keeps_the_address_row_in_place() {
@@ -418,7 +419,7 @@ mod tests {
             mnemonic: "test test test test test test test test test test test junk".into(),
             passphrase: String::new(),
         };
-        let summary = WalletSummary::from_wallet("public-test", &wallet).unwrap();
+        let summary = WalletSummary::from_wallet("public-test", &wallet, &[]).unwrap();
         let mut view = AccountView::default();
         view.select_wallet("public-test");
         view.set_cached(&summary);

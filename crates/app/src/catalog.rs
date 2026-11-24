@@ -286,7 +286,7 @@ mod tests {
             mnemonic: "test test test test test test test test test test test junk".into(),
             passphrase: String::new(),
         };
-        let summary = WalletSummary::from_wallet("public-test", &wallet).unwrap();
+        let summary = WalletSummary::from_wallet("public-test", &wallet, &[]).unwrap();
         c.upsert(summary.clone()).unwrap();
         assert_eq!(c.load().unwrap(), [summary]);
         let stored: serde_json::Value =

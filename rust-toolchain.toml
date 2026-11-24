@@ -1,0 +1,10 @@
+# Pinned so local builds and CI use the same rustc and clippy; `-D warnings` in CI
+# would otherwise break whenever a new stable release adds lints. To upgrade, bump
+# the version, then fix what `cargo clippy --workspace --all-targets -- -D warnings`
+# reports. The supported minimum stays `rust-version` in Cargo.toml.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+# Universal macOS builds (build-native.sh and build-bridge.sh --universal).
+targets = ["aarch64-apple-darwin", "x86_64-apple-darwin"]

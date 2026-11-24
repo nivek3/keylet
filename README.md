@@ -42,7 +42,7 @@ Useful for local scripts and developer tools that need derived keys, with recove
 
 ## Try it from source
 
-- **Build requirements:** macOS 14+, Rust, Apple command-line development tools, Python 3, Node.js 22+, and the pnpm version pinned in [`node/package.json`](node/package.json).
+- **Build requirements:** macOS 14+, Rust via rustup (the version is pinned in [`rust-toolchain.toml`](rust-toolchain.toml) and installed automatically), Apple command-line development tools, Python 3, Node.js 22+, and the pnpm version pinned in [`node/package.json`](node/package.json).
 - **App signing:** a certificate and provisioning profile authorizing your bundle ID and private Keychain group. Follow [the free Personal Team setup](docs/signing.md#personal-team) for local development. Developer ID signing and notarized distribution require the publisher to join the paid Apple Developer Program; users of a future signed release will not need their own developer account.
 
 The npm package does not include the macOS app. Build both before using the SDK.

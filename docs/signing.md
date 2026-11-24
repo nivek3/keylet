@@ -27,10 +27,10 @@ bash scripts/build-native.sh \
 
 The script reads the public profile metadata, validates its expiry and authorization, builds the Rust executable, embeds the profile, signs with Hardened Runtime, and verifies the signature. The profile's App Identifier Prefix determines the private access group; it is not assumed to equal Team ID. The output is `build/Keylet.app`. An existing output is replaced only after the new bundle passes signature verification. Both bundle version fields follow `crates/app/Cargo.toml`; use a numeric `major.minor.patch` version.
 
-The default build targets the host Mac. To build a Universal app for Apple Silicon and Intel, install both Rust targets and append `--universal` to the build command:
+The default build targets the host Mac. To build a Universal app for Apple Silicon and Intel, append `--universal` to the build command. `rust-toolchain.toml` lists both Rust targets, and `rustup toolchain install` installs them:
 
 ```sh
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
+rustup toolchain install
 bash scripts/build-native.sh \
   'Developer ID Application: Your Name (TEAMID)' \
   '/absolute/path/App.provisionprofile' \

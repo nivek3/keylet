@@ -58,7 +58,7 @@ print(signed.signature, signed.recovery_id)
 - `payload` is `bytes`. Ed25519 signers sign 1 to 1232 raw bytes, such as a serialized Solana transaction message. secp256k1 signers sign exactly one 32-byte digest, such as an Ethereum transaction hash or a Bitcoin sighash.
 - The result has `name`, `curve`, `public_key`, and a 64-byte `signature` in `0x` hex. secp256k1 results add `recovery_id` (0 or 1) and use low-S `r || s`. Ed25519 results add `address`, the Base58 public key. The SDK verifies every signature against the public key before returning it.
 - **Keylet signs blindly.** It does not decode payloads or apply transaction policies.
-- Calls with the same `name` and `auth_ttl` share one signing session in this process. The app's **Settings → Reuse signer auth** sets how long a session may sign without asking again (default 0). `auth_ttl` can only shorten that window. Invalid requests raise `ValueError("Invalid signer request")`, and app failures raise `RuntimeError` with the same codes as `get_key_pair`.
+- Calls with the same `name` and `auth_ttl` share one signing session in this process. The app's **Settings → Reuse signer auth** sets how long a session may sign without asking again (default 0). `auth_ttl` can only shorten that window. At most 8 sessions stay open per process: a session closes once it has been idle longer than its `auth_ttl`, and the least recently used one closes when another is needed. Invalid requests raise `ValueError("Invalid signer request")`, and app failures raise `RuntimeError` with the same codes as `get_key_pair`.
 
 The [`examples/`](examples) directory signs a Bitcoin sighash for a P2WPKH witness and a Solana message, using only the standard library:
 

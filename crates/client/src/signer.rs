@@ -56,8 +56,46 @@ struct SessionKey {
     ttl: Option<u64>,
 }
 
+/// Most signer sessions kept per process. The least recently used one closes first.
+const MAX_SESSIONS: usize = 8;
+
+struct Session {
+    process: HelperProcess,
+    last_used: Instant,
+}
+
 // One session per signer and TTL; never caches signatures or failures.
-static SESSIONS: OnceLock<Mutex<HashMap<SessionKey, HelperProcess>>> = OnceLock::new();
+static SESSIONS: OnceLock<Mutex<HashMap<SessionKey, Session>>> = OnceLock::new();
+
+/// Bounds retained helper processes. Other sessions close when their app process
+/// exited or when they have been idle longer than their `authTTL`: the window
+/// starts at authentication, before the last use, so it has already ended. If
+/// `keep` needs a new session, the least recently used ones close to make room.
+fn prune(sessions: &mut HashMap<SessionKey, Session>, keep: &SessionKey, now: Instant) {
+    sessions.retain(|key, session| {
+        if key == keep {
+            return true;
+        }
+        let running = matches!(session.process.child.try_wait(), Ok(None));
+        let expired = key.ttl.is_some_and(|ttl| {
+            now.saturating_duration_since(session.last_used) > Duration::from_secs(ttl)
+        });
+        running && !expired
+    });
+    if sessions.contains_key(keep) {
+        return;
+    }
+    while sessions.len() >= MAX_SESSIONS {
+        let Some(oldest) = sessions
+            .iter()
+            .min_by_key(|(_, session)| session.last_used)
+            .map(|(key, _)| key.clone())
+        else {
+            break;
+        };
+        sessions.remove(&oldest);
+    }
+}
 
 /// Signs `payload` with a local signer in the registered app.
 ///
@@ -186,8 +224,10 @@ fn sign_with(
     if cancelled() {
         return Err("CANCELLED");
     }
+    prune(&mut sessions, &key, Instant::now());
     let alive = match sessions.get_mut(&key) {
         Some(session) => session
+            .process
             .child
             .try_wait()
             .map_err(|_| "TRANSPORT_ERROR")?
@@ -200,17 +240,28 @@ fn sign_with(
         if let Some(ttl) = key.ttl {
             args.extend(["--ttl".to_owned(), ttl.to_string()]);
         }
-        sessions.insert(key.clone(), HelperProcess::start(&key.helper, &args, true)?);
+        let process = HelperProcess::start(&key.helper, &args, true)?;
+        sessions.insert(
+            key.clone(),
+            Session {
+                process,
+                last_used: Instant::now(),
+            },
+        );
     }
     let session = sessions.get_mut(&key).ok_or("TRANSPORT_ERROR")?;
     let frame = json!({ "payload": hex(&payload) });
     let result = session
+        .process
         .write_line(&frame.to_string())
-        .and_then(|()| session.read_line(TIMEOUT, &cancelled))
+        .and_then(|()| session.process.read_line(TIMEOUT, &cancelled))
         .and_then(|(line, err)| parse_signature(&key.name, &payload, &line, &err));
-    if result.is_err() {
+    match result {
+        Ok(_) => session.last_used = Instant::now(),
         // The app ends a session on any error; start fresh on the next call.
-        sessions.remove(&key);
+        Err(_) => {
+            sessions.remove(&key);
+        }
     }
     result
 }
@@ -610,8 +661,66 @@ mod tests {
         (root, helper)
     }
 
+    // Session tests share the process-wide cache, and eviction is global.
+    static SESSION_TESTS: Mutex<()> = Mutex::new(());
+
+    fn helper_sessions(helper: &Path) -> Vec<Option<u64>> {
+        let sessions = SESSIONS.get().unwrap().lock().unwrap();
+        let mut ttls: Vec<_> = sessions
+            .keys()
+            .filter(|key| key.helper == helper)
+            .map(|key| key.ttl)
+            .collect();
+        ttls.sort();
+        ttls
+    }
+
+    #[test]
+    fn retained_sessions_are_bounded_and_idle_ones_close_after_their_ttl() {
+        let _serial = SESSION_TESTS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let response = secp_response("bounded", &DIGEST);
+        let (root, helper) = fixture(&format!(
+            "echo \"$*\" >> \"$0.starts\"\nwhile read line; do echo '{response}'; done\n"
+        ));
+        let sign = |ttl: u64| {
+            let input = json!({"name": "bounded", "payload": hex(&DIGEST), "authTTL": ttl});
+            sign_for_test(&input, helper.clone(), || false).map(drop)
+        };
+        let starts = || {
+            fs::read_to_string(helper.with_extension("sh.starts"))
+                .unwrap()
+                .lines()
+                .count()
+        };
+        for ttl in 1000..1000 + MAX_SESSIONS as u64 + 1 {
+            sign(ttl).unwrap();
+        }
+        // The least recently used session (1000) closed to make room.
+        let expected: Vec<_> = (1001..1000 + MAX_SESSIONS as u64 + 1).map(Some).collect();
+        assert_eq!(helper_sessions(&helper), expected);
+        assert_eq!(starts(), MAX_SESSIONS + 1);
+        sign(1000 + MAX_SESSIONS as u64).unwrap();
+        assert_eq!(starts(), MAX_SESSIONS + 1, "an active session is reused");
+        sign(1000).unwrap();
+        assert_eq!(starts(), MAX_SESSIONS + 2);
+        assert!(!helper_sessions(&helper).contains(&Some(1001)));
+
+        // A session idle longer than its authTTL can no longer skip a prompt.
+        sign(1).unwrap();
+        thread::sleep(Duration::from_millis(1100));
+        sign(1000).unwrap();
+        assert!(!helper_sessions(&helper).contains(&Some(1)));
+        assert!(helper_sessions(&helper).contains(&Some(1000)));
+        fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn sessions_are_reused_per_signer_and_ttl_and_restart_after_errors() {
+        let _serial = SESSION_TESTS
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let response = secp_response("reuse", &DIGEST);
         let (root, helper) = fixture(&format!(
             "echo \"$*\" >> \"$0.starts\"\nwhile read line; do\n  case \"$line\" in *0x0000*) echo CANCELLED >&2; exit 1;; esac\n  echo '{response}'\ndone\n"

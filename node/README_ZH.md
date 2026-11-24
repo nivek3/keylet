@@ -73,7 +73,7 @@ const signed = await signWithSigner({ name: 'evm', payload: tx.unsignedHash, aut
 - SDK 返回前会用公钥校验每个签名，格式错误或不匹配的响应会以 `INVALID_HELPER_RESPONSE` 拒绝。
 - **Keylet 只做盲签。**它不解码签名内容，也不做额度、白名单或 Swap 等策略校验，交易需由你的代码构造和检查。
 
-同一 Node 进程内，`name` 和 `authTTL` 相同的调用共用一个签名会话。App 的 **… → Settings → Reuse signer auth** 决定会话在多长时间内免确认（默认 `0`，每次签名都要认证）。`authTTL` 只能缩短这个窗口，不传则跟随 App。窗口内，本进程可以用该 signer 签任意内容。App 返回错误会结束会话，下次调用会启动新会话。参数无效时，会在启动 App 之前以 `Invalid signer request` 拒绝。
+同一 Node 进程内，`name` 和 `authTTL` 相同的调用共用一个签名会话。App 的 **… → Settings → Reuse signer auth** 决定会话在多长时间内免确认（默认 `0`，每次签名都要认证）。`authTTL` 只能缩短这个窗口，不传则跟随 App。窗口内，本进程可以用该 signer 签任意内容。App 返回错误会结束会话，下次调用会启动新会话。每个进程最多保留 8 个会话：闲置时间超过自身 `authTTL` 的会话会被关闭；需要新会话时，关闭最久未使用的那个。参数无效时，会在启动 App 之前以 `Invalid signer request` 拒绝。
 
 ## 运行示例
 

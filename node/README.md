@@ -73,7 +73,7 @@ const signed = await signWithSigner({ name: 'evm', payload: tx.unsignedHash, aut
 - The SDK verifies every signature against the returned public key before it returns, and rejects malformed or mismatched responses with `INVALID_HELPER_RESPONSE`.
 - **Keylet signs blindly.** It does not decode the payload or apply amount, allowlist, or swap policies. Build and check transactions in your own code.
 
-Calls with the same `name` and `authTTL` share one signing session in this Node process. In **… → Settings → Reuse signer auth**, the app sets how long a session may sign without asking again (default `0`, which prompts for every signature). `authTTL` can only shorten that window, and omitting it follows the app. During the window, this process can sign any payload with that signer. An app error ends the session, and the next call starts a new one. Invalid requests reject with `Invalid signer request` before the app starts.
+Calls with the same `name` and `authTTL` share one signing session in this Node process. In **… → Settings → Reuse signer auth**, the app sets how long a session may sign without asking again (default `0`, which prompts for every signature). `authTTL` can only shorten that window, and omitting it follows the app. During the window, this process can sign any payload with that signer. An app error ends the session, and the next call starts a new one. The SDK keeps at most 8 sessions per process: it closes a session once it has been idle longer than its `authTTL`, and closes the least recently used one when another is needed. Invalid requests reject with `Invalid signer request` before the app starts.
 
 ## Run the examples
 

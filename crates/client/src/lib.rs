@@ -1,6 +1,6 @@
 //! Shared client for the signed macOS app's private key request protocol.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::{
     io::{Read, Write},
     os::{
@@ -13,7 +13,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use wallet_crypto::{valid_wallet_name, Curve};
+use wallet_crypto::{Curve, valid_wallet_name};
 use zeroize::Zeroizing;
 
 mod discovery;
@@ -292,14 +292,16 @@ impl AppSession {
             if key.len() == 32 && out.last() == Some(&b'\n') {
                 return parse_response(selection, &key, &out, &err);
             }
-            if let Some(status) = self.child.try_wait().map_err(|_| "TRANSPORT_ERROR")? {
-                if key_done && out_done && err_done {
-                    return Err(if status.success() {
-                        BAD_RESPONSE
-                    } else {
-                        reported_error(&err)
-                    });
-                }
+            if let Some(status) = self.child.try_wait().map_err(|_| "TRANSPORT_ERROR")?
+                && key_done
+                && out_done
+                && err_done
+            {
+                return Err(if status.success() {
+                    BAD_RESPONSE
+                } else {
+                    reported_error(&err)
+                });
             }
             if Instant::now() >= deadline {
                 return Err("AUTHENTICATION_TIMEOUT");

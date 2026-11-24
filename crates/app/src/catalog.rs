@@ -286,7 +286,7 @@ mod tests {
             mnemonic: "test test test test test test test test test test test junk".into(),
             passphrase: String::new(),
         };
-        let summary = WalletSummary::from_wallet("public-test", &wallet).unwrap();
+        let summary = WalletSummary::from_wallet("public-test", &wallet, &[]).unwrap();
         c.upsert(summary.clone()).unwrap();
         assert_eq!(c.load().unwrap(), [summary]);
         let stored: serde_json::Value =
@@ -297,7 +297,16 @@ mod tests {
             .keys()
             .map(String::as_str)
             .collect();
-        assert_eq!(keys, ["ethereumAddress", "name", "solanaAddress"]);
+        assert_eq!(
+            keys,
+            [
+                "ethereumAccounts",
+                "ethereumAddress",
+                "name",
+                "solanaAccounts",
+                "solanaAddress"
+            ]
+        );
         let mut malformed = c.load().unwrap().remove(0);
         malformed.solana_address = Some("not-a-solana-address".into());
         assert!(c.upsert(malformed).is_err());

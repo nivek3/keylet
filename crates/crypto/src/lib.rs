@@ -1,5 +1,5 @@
 //! Shared wallet derivation and selection rules.
-use bip32::{secp256k1::ecdsa::VerifyingKey, DerivationPath, XPrv};
+use bip32::{DerivationPath, XPrv, secp256k1::ecdsa::VerifyingKey};
 use bip39::{Language, Mnemonic};
 use derivation_path::DerivationPath as EdPath;
 use serde::{Deserialize, Serialize};
@@ -146,6 +146,36 @@ fn derive_seed(
     }
 }
 
+/// A BIP-39 seed, computed once so several paths can be derived from one wallet
+/// without repeating the PBKDF2 stretch. Zeroized on drop.
+pub struct Seed(Zeroizing<[u8; 64]>);
+
+impl Seed {
+    /// Compute the seed for a mnemonic and passphrase.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the mnemonic is invalid.
+    pub fn new(mnemonic: &str, passphrase: &str) -> Result<Self, DeriveError> {
+        let mnemonic = Mnemonic::parse_in(Language::English, mnemonic)
+            .map_err(|_| DeriveError::InvalidMnemonic)?;
+        Ok(Self(Zeroizing::new(mnemonic.to_seed(passphrase))))
+    }
+
+    /// Derive the selected private key and its public key from this seed.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the path is invalid or derivation fails.
+    pub fn derive(
+        &self,
+        curve: Curve,
+        path: &str,
+    ) -> Result<(Zeroizing<[u8; 32]>, PublicKey), DeriveError> {
+        derive_seed(&self.0[..], curve, path)
+    }
+}
+
 /// Derive the selected private key and its public key.
 ///
 /// # Errors
@@ -157,10 +187,7 @@ pub fn derive(
     curve: Curve,
     path: &str,
 ) -> Result<(Zeroizing<[u8; 32]>, PublicKey), DeriveError> {
-    let mnemonic = Mnemonic::parse_in(Language::English, mnemonic)
-        .map_err(|_| DeriveError::InvalidMnemonic)?;
-    let seed = Zeroizing::new(mnemonic.to_seed(passphrase));
-    derive_seed(&seed[..], curve, path)
+    Seed::new(mnemonic, passphrase)?.derive(curve, path)
 }
 
 /// Convert OS-supplied entropy to an English BIP-39 phrase.
@@ -267,7 +294,10 @@ mod tests {
     fn entropy_to_mnemonic_bip39_vector() {
         let entropy = [0u8; 16];
         let words = mnemonic_from_entropy(&entropy).unwrap();
-        assert_eq!(words.as_str(), "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
+        assert_eq!(
+            words.as_str(),
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        );
         assert_eq!(
             Mnemonic::parse_in(Language::English, words.as_str())
                 .unwrap()
@@ -305,7 +335,10 @@ mod tests {
         let mnemonic = Mnemonic::parse_in(Language::English, words).unwrap();
         let seed = Zeroizing::new(mnemonic.to_seed("TREZOR"));
         let hex: String = seed.iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(hex, "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04");
+        assert_eq!(
+            hex,
+            "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04"
+        );
         assert_eq!(
             *derive(WORDS, "é", Curve::Secp256k1, PATH).unwrap().0,
             *derive(WORDS, "e\u{301}", Curve::Secp256k1, PATH).unwrap().0
@@ -320,5 +353,25 @@ mod tests {
     fn rejects_bad_checksum_and_path() {
         assert!(derive("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon", "", Curve::Secp256k1, PATH).is_err());
         assert!(derive(WORDS, "", Curve::Secp256k1, "bad/path").is_err());
+    }
+
+    #[test]
+    fn reused_seed_matches_one_shot_derivation() {
+        let seed = Seed::new(WORDS, "pass").unwrap();
+        for (curve, path) in [
+            (Curve::Secp256k1, PATH),
+            (Curve::Secp256k1, "m/44'/60'/0'/0/7"),
+            (Curve::Ed25519, "m/44'/501'/0'/0'"),
+            (Curve::Ed25519, "m/44'/501'/3'/0'"),
+        ] {
+            assert_eq!(
+                *seed.derive(curve, path).unwrap().0,
+                *derive(WORDS, "pass", curve, path).unwrap().0
+            );
+        }
+        assert_eq!(
+            Seed::new("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon", "").err(),
+            Some(DeriveError::InvalidMnemonic)
+        );
     }
 }

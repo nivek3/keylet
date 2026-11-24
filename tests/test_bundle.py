@@ -50,7 +50,7 @@ class BundleTests(unittest.TestCase):
         icon = (app / "Contents/Resources/AppIcon.icns").read_bytes()
         self.assertEqual(icon[:4], b"icns")
         self.assertEqual(int.from_bytes(icon[4:8], "big"), len(icon))
-        self.assertEqual(icon, (SCRIPT.parent.parent / "assets/AppIcon.icns").read_bytes())
+        self.assertEqual(icon, (SCRIPT.parent.parent / "crates/app/assets/AppIcon.icns").read_bytes())
         self.assertFalse(info["LSUIElement"])
 
     def test_bundle_version_follows_package_version(self):

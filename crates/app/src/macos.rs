@@ -493,7 +493,9 @@ impl Vault {
         }
     }
 
-    pub fn summaries(&self) -> Result<Vec<WalletSummary>> {
+    /// Rebuilds every wallet's display cache from Keychain. Addresses remembered in
+    /// `previous` are re-derived from each wallet rather than carried over.
+    pub fn summaries(&self, previous: &[WalletSummary]) -> Result<Vec<WalletSummary>> {
         let context = AuthContext::new(
             "refresh your wallet list and default account addresses",
             false,
@@ -502,7 +504,11 @@ impl Vault {
             .into_iter()
             .map(|name| {
                 let wallet = self.read(&name, &context)?;
-                WalletSummary::from_wallet(&name, &wallet)
+                let remembered = previous
+                    .iter()
+                    .find(|old| old.name == name)
+                    .map_or(&[][..], |old| &old.saved_accounts[..]);
+                WalletSummary::from_wallet(&name, &wallet, remembered)
             })
             .collect()
     }
@@ -693,10 +699,10 @@ impl Clipboard {
             .is_some_and(|(_, count)| self.board.changeCount() == count)
     }
     pub fn clear(&mut self) {
-        if let Some((_, count)) = self.expiry.take() {
-            if self.board.changeCount() == count {
-                self.board.clearContents();
-            }
+        if let Some((_, count)) = self.expiry.take()
+            && self.board.changeCount() == count
+        {
+            self.board.clearContents();
         }
     }
 }

@@ -32,8 +32,8 @@ https://github.com/user-attachments/assets/3554d122-92ed-412b-bce7-057f6dcdcdff
 
 - 创建、导入英文 BIP-39 助记词，支持可选附加口令。
 - 使用私有 Keychain 访问组保存钱包，通过系统认证读取。
-- 免密浏览钱包名称及缓存的默认 Ethereum / Solana 地址。在 **Derived account** 中认证核对地址。
-- 在钱包详情的 **Derived account** 中，按 index 或完整派生路径认证查看并复制 Ethereum / Solana 地址。
+- 免密浏览钱包名称及缓存的 Ethereum / Solana 地址。创建、导入或同步钱包时会缓存 index 0–9 的地址。
+- 在钱包详情的 **Derived accounts** 中，按 index 或完整派生路径复制 Ethereum / Solana 地址。已缓存的 index 直接复制，其他 index 和自定义路径需认证一次，之后会记住该地址。
 - 认证并明确操作后显示助记词或删除钱包。
 - 通过 Node.js 和 Python API 返回 secp256k1 或 SLIP-0010 Ed25519 公私钥。
 

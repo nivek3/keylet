@@ -1,4 +1,4 @@
-//! CPython binding for the Keylet macOS client.
+//! `CPython` binding for the Keylet macOS client.
 
 use pyo3::{
     exceptions::{PyRuntimeError, PyValueError},
@@ -7,6 +7,7 @@ use pyo3::{
 };
 use serde_json::{Value, json};
 use std::{
+    fmt::Write as _,
     process,
     sync::{
         Arc,
@@ -88,7 +89,7 @@ fn run<T: Send + 'static>(
         }
         match result {
             Ok(result) => break result,
-            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => {
                 return Err(PyRuntimeError::new_err("CLIENT_REQUEST_FAILED"));
             }
@@ -154,6 +155,10 @@ fn _get_key_pair_for_test(
 
 /// A signature from a local signer, verified against its public key. Fields are `0x` hex.
 #[pyclass(frozen, module = "keylet", get_all)]
+#[expect(
+    clippy::struct_field_names,
+    reason = "field names are the Python attributes, matching the Node SDK"
+)]
 struct Signature {
     name: String,
     curve: String,
@@ -197,7 +202,10 @@ impl SignerPublicKey {
 }
 
 fn sign_input(name: &str, payload: &[u8], auth_ttl: Option<&Bound<'_, PyAny>>) -> PyResult<Value> {
-    let hex: String = payload.iter().map(|byte| format!("{byte:02x}")).collect();
+    let hex = payload.iter().fold(String::new(), |mut hex, byte| {
+        let _ = write!(hex, "{byte:02x}");
+        hex
+    });
     let mut input = json!({ "name": name, "payload": format!("0x{hex}") });
     if let Some(auth_ttl) = auth_ttl {
         input["authTTL"] = json!(
@@ -231,7 +239,7 @@ fn signer_public_key(value: wallet_client::signer::SignerPublicKey) -> SignerPub
 /// Sign `payload` (bytes) with a local signer in the Keylet app.
 ///
 /// Ed25519 signs 1 to 1232 raw bytes; secp256k1 signs exactly one 32-byte digest.
-/// Keylet signs blindly. Calls with the same name and auth_ttl share one session.
+/// Keylet signs blindly. Calls with the same name and `auth_ttl` share one session.
 #[pyfunction]
 #[pyo3(signature = (*, name, payload, auth_ttl=None))]
 fn sign_with_signer(

@@ -5,7 +5,10 @@ use crate::catalog::Catalog;
 use crate::theme::{self, WalletChoice};
 use crate::{
     macos::{self, Clipboard, ClipboardGate, SecureInput, Vault},
-    model::*,
+    model::{
+        Curve, DEFAULT_ETH_PATH, DEFAULT_SOL_PATH, DeletePlan, Failure, KeyRequest, PendingWallet,
+        Result, StoredWallet, WalletSummary, check_passphrase, derive, normalize,
+    },
 };
 use eframe::egui::{self, Event, Id, TextEdit, ViewportCommand};
 use std::{
@@ -123,6 +126,7 @@ impl BackupConfirmation {
         self.clear();
         self.order = std::array::from_fn(|index| index);
         for index in (1..self.order.len()).rev() {
+            // SAFETY: arc4random_uniform has no preconditions; the bound is at most 12.
             let other = unsafe { libc::arc4random_uniform((index + 1) as u32) } as usize;
             self.order.swap(index, other);
         }
@@ -319,7 +323,7 @@ fn backup_buttons(
     secondary: Option<(&str, bool, &mut bool)>,
     primary: &str,
 ) -> (bool, bool) {
-    let leading: Vec<theme::Action> = secondary
+    let leading: Vec<theme::Action<'_>> = secondary
         .as_ref()
         .map(|(label, enabled, _)| theme::Action::secondary(label).enabled(*enabled))
         .into_iter()
@@ -389,7 +393,10 @@ enum PhraseAction {
 /// Hide and Copy while shown, or Show while masked, on the trailing edge.
 fn phrase_actions(ui: &mut egui::Ui, shown: bool, copied: bool) -> Option<PhraseAction> {
     use theme::Action;
-    let leading: Vec<(Action, PhraseAction)> = if copied {
+    fn buttons<'a>(list: &[(theme::Action<'a>, PhraseAction)]) -> Vec<theme::Action<'a>> {
+        list.iter().map(|(action, _)| *action).collect()
+    }
+    let leading: Vec<(Action<'_>, PhraseAction)> = if copied {
         vec![(
             Action::secondary("Clear clipboard"),
             PhraseAction::ClearClipboard,
@@ -408,9 +415,6 @@ fn phrase_actions(ui: &mut egui::Ui, shown: bool, copied: bool) -> Option<Phrase
     } else {
         vec![(Action::primary("Show"), PhraseAction::Show)]
     };
-    fn buttons<'a>(list: &[(theme::Action<'a>, PhraseAction)]) -> Vec<theme::Action<'a>> {
-        list.iter().map(|(action, _)| *action).collect()
-    }
     let (lead, trail) = theme::button_bar(ui, &buttons(&leading), &buttons(&trailing));
     leading
         .iter()
@@ -481,7 +485,7 @@ fn discard_wallet_dialog(ctx: &egui::Context, creating: bool) -> Option<bool> {
                         theme::WalletChoice::Import
                     };
                     let glyph = if creating { "+" } else { "↓" };
-                    theme::alert_icon(ui, theme::choice_tile(&choice), glyph, None)
+                    theme::alert_icon(ui, theme::choice_tile(choice), glyph, None);
                 },
                 if creating {
                     "Discard wallet setup?"
@@ -555,7 +559,7 @@ impl WalletApp {
         };
         self.revealed
             .show(std::mem::take(&mut wallet.mnemonic), Instant::now());
-        self.name = name.to_owned();
+        name.clone_into(&mut self.name);
         self.message.clear();
         Ok(())
     }
@@ -606,7 +610,7 @@ impl WalletApp {
                 self.message = format!(
                     "Unable to load the wallet list ({}). Use Sync from Keychain to rebuild it.",
                     error.code()
-                )
+                );
             }
         }
     }
@@ -627,7 +631,7 @@ impl WalletApp {
                 self.message = format!(
                     "Sync stopped ({}). The previous list was kept.",
                     error.code()
-                )
+                );
             }
         }
     }
@@ -719,23 +723,15 @@ impl WalletApp {
             Stage::Welcome => "Add wallet",
             Stage::Wallets => "Wallets",
             Stage::Settings => "Settings",
-            Stage::Details => {
+            Stage::Details | Stage::Secrets => {
                 if self.creating {
                     "New wallet"
                 } else {
                     "Import wallet"
                 }
             }
-            Stage::Secrets => {
-                if self.creating {
-                    "New wallet"
-                } else {
-                    "Import wallet"
-                }
-            }
-            Stage::Reveal | Stage::Backup => "Seed phrase",
+            Stage::Reveal | Stage::Backup | Stage::ViewPhrase => "Seed phrase",
             Stage::Confirm => "Verify backup",
-            Stage::ViewPhrase => "Seed phrase",
             Stage::Success => {
                 if self.creating {
                     "Wallet created"
@@ -933,7 +929,7 @@ impl WalletApp {
                     .pending
                     .as_ref()
                     .filter(|_| focused)
-                    .map(|p| p.phrase());
+                    .map(super::model::PendingWallet::phrase);
                 theme::group(ui, |ui| phrase_card(ui, phrase, MIN_RECOVERY_CARD_HEIGHT));
                 let hide = theme::footnote_action(
                     ui,
@@ -998,7 +994,7 @@ impl WalletApp {
                         self.pending
                             .as_mut()
                             .ok_or(Failure::Input)
-                            .map(|p| p.skip_backup())
+                            .map(super::model::PendingWallet::skip_backup)
                     } else {
                         self.backup_confirmation.phrase().and_then(|phrase| {
                             self.pending
@@ -1007,7 +1003,7 @@ impl WalletApp {
                                 .confirm(&phrase)
                         })
                     };
-                    let result = confirmation.and_then(|_| self.save());
+                    let result = confirmation.and_then(|()| self.save());
                     if let Err(e) = result {
                         self.message = if e == Failure::Input && !skip {
                             "Check each word against its number. Nothing was saved.".into()
@@ -1081,7 +1077,7 @@ impl WalletApp {
                         Ok(()) => {
                             self.message.clear();
                             ui.data_mut(|data| {
-                                data.insert_temp(Id::new("scroll-seed-notice"), true)
+                                data.insert_temp(Id::new("scroll-seed-notice"), true);
                             });
                             ctx.request_repaint();
                         }
@@ -1192,7 +1188,7 @@ impl WalletApp {
                             self.message = format!(
                                 "Deletion stopped ({}). Review the remaining wallets before trying again.",
                                 error.code()
-                            )
+                            );
                         }
                     }
                     if index_failed && !self.cli_delete {
@@ -1230,8 +1226,7 @@ impl WalletApp {
         }
         page_scroll(self.stage).show(ui, |ui| {
             let max_width = match self.stage {
-                Stage::Wallets => 760.0,
-                Stage::ViewPhrase => 760.0,
+                Stage::Wallets | Stage::ViewPhrase => 760.0,
                 Stage::Delete => 520.0,
                 Stage::Reveal | Stage::Backup => 560.0,
                 _ => 420.0,
@@ -1306,9 +1301,10 @@ impl eframe::App for WalletApp {
         if self.pending_wallet_selection.is_some() {
             match discard_wallet_dialog(ctx, self.creating) {
                 Some(true) => {
-                    let name = self.pending_wallet_selection.take().unwrap();
-                    self.return_to_wallets();
-                    self.selected_wallet = Some(name);
+                    if let Some(name) = self.pending_wallet_selection.take() {
+                        self.return_to_wallets();
+                        self.selected_wallet = Some(name);
+                    }
                 }
                 Some(false) => self.pending_wallet_selection = None,
                 None => {}
@@ -1366,7 +1362,7 @@ pub fn run(
         copied: None,
         pending_wallet_selection: None,
         deletion: None,
-        cli_result: outcome.clone(),
+        cli_result: Rc::clone(&outcome),
     };
     if let Some((request, expected)) = import {
         app.name = request.name;
@@ -1376,7 +1372,7 @@ pub fn run(
         app.stage = Stage::Secrets;
     }
     if let Some(name) = delete {
-        app.name = name.clone();
+        app.name.clone_from(&name);
         app.confirm_delete(vec![name]);
     }
     if !cli_mode {
@@ -1440,6 +1436,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "the same page must lay out at exactly the same offset"
+    )]
     fn opening_settings_does_not_inherit_seed_phrase_scroll() {
         let ctx = egui::Context::default();
         theme::configure(&ctx);
@@ -1521,7 +1521,7 @@ mod tests {
                         });
                 });
                 if let Some(target) = target {
-                    assert!(curve == target);
+                    assert_eq!(curve, target);
                 }
             }
         }
@@ -1638,7 +1638,7 @@ mod tests {
             largest * 60
         );
         for input in [
-            "".to_owned(),
+            String::new(),
             "-1".into(),
             "1.5".into(),
             "abc".into(),
@@ -1978,7 +1978,7 @@ mod tests {
                         .show(ctx, |ui| {
                             let bounds = ui.max_rect();
                             let grid = ui.scope(|ui| {
-                                recovery_words(ui, &"abstract ".repeat(count), 0.0, theme::INK)
+                                recovery_words(ui, &"abstract ".repeat(count), 0.0, theme::INK);
                             });
                             assert!(
                                 bounds.contains_rect(grid.response.rect),

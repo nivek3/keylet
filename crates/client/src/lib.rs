@@ -39,6 +39,16 @@ pub struct KeyPair {
     public: String,
 }
 
+impl std::fmt::Debug for KeyPair {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Never print the private key.
+        formatter
+            .debug_struct("KeyPair")
+            .field("public", &self.public)
+            .finish_non_exhaustive()
+    }
+}
+
 impl KeyPair {
     /// Returns the public and private keys as lowercase `0x` hex strings.
     pub fn into_hex(self) -> (String, String) {
@@ -81,7 +91,7 @@ fn request(
 ) -> BridgeResult<KeyPair> {
     let (name, curve, path, authentication_ttl) = validate(input)?;
     unlock(
-        Selection {
+        &Selection {
             helper: discover()?,
             name,
             curve,
@@ -116,7 +126,7 @@ fn validate(input: &Value) -> BridgeResult<(String, Curve, String, u64)> {
             let number = value.as_f64().ok_or(INVALID)?;
             if !number.is_finite()
                 || number.fract() != 0.0
-                || !(0.0..2147483648.0).contains(&number)
+                || !(0.0..2_147_483_648.0).contains(&number)
             {
                 return Err(INVALID);
             }
@@ -144,7 +154,7 @@ fn validate(input: &Value) -> BridgeResult<(String, Curve, String, u64)> {
     Ok((name.to_owned(), curve, path, authentication_ttl))
 }
 
-fn unlock(selection: Selection, cancelled: impl Fn() -> bool) -> BridgeResult<KeyPair> {
+fn unlock(selection: &Selection, cancelled: impl Fn() -> bool) -> BridgeResult<KeyPair> {
     let mut session = SESSION
         .get_or_init(|| Mutex::new(None))
         .lock()
@@ -166,10 +176,10 @@ fn unlock(selection: Selection, cancelled: impl Fn() -> bool) -> BridgeResult<Ke
     };
     if !reusable {
         *session = None;
-        *session = Some(AppSession::start(&selection)?);
+        *session = Some(AppSession::start(selection)?);
     }
     let result = session.as_mut().ok_or("TRANSPORT_ERROR")?.read_key(
-        &selection,
+        selection,
         Duration::from_secs(120),
         cancelled,
     );
@@ -192,7 +202,9 @@ fn helper_command(helper: &Path) -> Command {
 }
 
 fn nonblocking(fd: RawFd) -> BridgeResult<()> {
+    // SAFETY: `fd` belongs to a live pipe or socket owned by the caller.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    // SAFETY: as above; only the status flags change.
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         return Err("TRANSPORT_ERROR");
     }
@@ -206,7 +218,7 @@ fn drain(reader: &mut impl Read, output: &mut Vec<u8>, limit: usize) -> BridgeRe
             Ok(0) => return Ok(true),
             Ok(count) if output.len() + count <= limit => output.extend_from_slice(&chunk[..count]),
             Ok(_) => return Err(BAD_RESPONSE),
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(false),
             Err(_) => return Err("TRANSPORT_ERROR"),
         }
@@ -239,7 +251,8 @@ impl AppSession {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        // After fork, only async-signal-safe descriptor operations before exec.
+        // SAFETY: the closure runs in the forked child before exec and only calls the
+        // async-signal-safe dup2 and fcntl on descriptors that exist in the child.
         unsafe {
             command.pre_exec(move || {
                 if libc::dup2(fd, 3) < 0 || libc::fcntl(3, libc::F_SETFD, 0) < 0 {
@@ -409,7 +422,7 @@ mod tests {
 
     #[test]
     fn curves_defaults_and_index_boundaries() {
-        for index in [0, 1, 2, 2147483647] {
+        for index in [0, 1, 2, 2_147_483_647] {
             let (_, curve, path, _) =
                 validate(&json!({"name":"test", "curve":"secp256k1", "index": index})).unwrap();
             assert_eq!(curve, Curve::Secp256k1);
@@ -451,7 +464,7 @@ mod tests {
         for index in [
             json!(-1),
             json!(0.5),
-            json!(2147483648u64),
+            json!(2_147_483_648_u64),
             json!("1"),
             Value::Null,
         ] {
@@ -551,16 +564,13 @@ mod tests {
             path: "m/0'".into(),
             authentication_ttl: 300,
         };
-        assert!(matches!(
-            unlock(selection.clone(), || false),
-            Err("CANCELLED")
-        ));
+        assert!(matches!(unlock(&selection, || false), Err("CANCELLED")));
         fs::write(
             &helper,
             "#!/bin/sh\nread request\nprintf 'NOT_FOUND\\n' >&2\nexit 1\n",
         )
         .unwrap();
-        assert!(matches!(unlock(selection, || false), Err("NOT_FOUND")));
+        assert!(matches!(unlock(&selection, || false), Err("NOT_FOUND")));
         fs::remove_dir_all(root).unwrap();
     }
 }

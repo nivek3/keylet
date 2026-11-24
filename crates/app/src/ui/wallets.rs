@@ -75,7 +75,7 @@ fn toolbar_row(ui: &mut egui::Ui, id: &str, add: impl FnOnce(&mut egui::Ui)) {
     ui.allocate_ui_with_layout(rect.size(), Layout::left_to_right(Align::Center), |ui| {
         ui.set_min_size(rect.size());
         ui.spacing_mut().item_spacing.x = 4.0;
-        add(ui)
+        add(ui);
     });
 }
 
@@ -221,7 +221,7 @@ impl WalletApp {
         }
         if show_phrase {
             self.wipe_draft();
-            self.name = entry.name.clone();
+            self.name.clone_from(&entry.name);
             self.selected_wallet = Some(entry.name.clone());
             self.recovery_card_height = MIN_RECOVERY_CARD_HEIGHT;
             self.message.clear();
@@ -253,9 +253,10 @@ impl WalletApp {
     fn open_settings(&mut self) {
         self.wipe_draft();
         self.message.clear();
-        let mut minutes = |ttl: crate::model::Result<u64>| match ttl {
-            Ok(seconds) => (seconds / 60).to_string(),
-            Err(_) => {
+        let mut minutes = |ttl: crate::model::Result<u64>| {
+            if let Ok(seconds) = ttl {
+                (seconds / 60).to_string()
+            } else {
                 self.message = "Unable to read settings. Enter a duration to save.".into();
                 String::new()
             }
@@ -472,7 +473,9 @@ mod tests {
                     .shapes
                     .iter()
                     .find_map(|shape| match &shape.shape {
-                        egui::Shape::Circle(circle) if circle.radius == 4.5 => {
+                        egui::Shape::Circle(circle)
+                            if (circle.radius - 4.5).abs() < f32::EPSILON =>
+                        {
                             Some(circle.center.x)
                         }
                         _ => None,
@@ -550,7 +553,7 @@ mod tests {
                         } else {
                             theme::search_button(ui);
                             ui.data_mut(|data| {
-                                data.insert_temp(Id::new("focus-wallet-search"), true)
+                                data.insert_temp(Id::new("focus-wallet-search"), true);
                             });
                         }
                     });
@@ -560,7 +563,7 @@ mod tests {
             assert!(tree.nodes.iter().any(|(id, _)| *id == tree.focus));
             if expanded {
                 assert_eq!(
-                    ctx.memory(|memory| memory.focused()),
+                    ctx.memory(eframe::egui::Memory::focused),
                     Some(Id::new("wallet-search"))
                 );
             }

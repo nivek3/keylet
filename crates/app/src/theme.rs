@@ -279,13 +279,14 @@ pub fn danger(ui: &mut Ui, label: &str) -> egui::Response {
     )
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum WalletChoice {
     Create,
     Import,
 }
 
 /// The icon tile for creating or importing, shared by the choice cards and alerts.
-pub(crate) fn choice_tile(choice: &WalletChoice) -> Tile {
+pub(crate) fn choice_tile(choice: WalletChoice) -> Tile {
     match choice {
         WalletChoice::Create => CREATE_TILE,
         WalletChoice::Import => TILES[7],
@@ -293,7 +294,7 @@ pub(crate) fn choice_tile(choice: &WalletChoice) -> Tile {
 }
 
 pub(crate) fn wallet_choice(ui: &mut Ui, width: f32, choice: WalletChoice) -> egui::Response {
-    let tile = choice_tile(&choice);
+    let swatch = choice_tile(choice);
     let (title, detail) = match choice {
         WalletChoice::Create => ("Create wallet", "New seed phrase"),
         WalletChoice::Import => ("Import wallet", "Existing seed phrase"),
@@ -323,7 +324,7 @@ pub(crate) fn wallet_choice(ui: &mut Ui, width: f32, choice: WalletChoice) -> eg
         egui::pos2(rect.center().x, rect.top() + 34.0),
         egui::vec2(36.0, 36.0),
     );
-    paint_tile(painter, icon, 9.0, tile);
+    paint_tile(painter, icon, 9.0, swatch);
     let center = icon.center();
     let point = |x, y| center + egui::vec2(x, y);
     let stroke = Stroke::new(2.0_f32, ACCENT_INK);
@@ -405,8 +406,12 @@ impl<'a> Action<'a> {
 /// The one button layout used everywhere, following macOS: a single row; extra
 /// actions on the leading edge; Cancel and the default action on the trailing edge,
 /// with the default last. Returns the clicks in the order the actions were given.
-pub fn button_bar(ui: &mut Ui, leading: &[Action], trailing: &[Action]) -> (Vec<bool>, Vec<bool>) {
-    let draw = |ui: &mut Ui, action: &Action| {
+pub fn button_bar(
+    ui: &mut Ui,
+    leading: &[Action<'_>],
+    trailing: &[Action<'_>],
+) -> (Vec<bool>, Vec<bool>) {
+    let draw = |ui: &mut Ui, action: &Action<'_>| {
         ui.add_enabled_ui(action.enabled, |ui| match action.tone {
             Tone::Primary => primary(ui, action.label),
             Tone::Secondary => secondary(ui, action.label),
@@ -667,6 +672,7 @@ pub fn group_separator(ui: &mut Ui) {
     );
 }
 
+#[derive(Clone, Copy)]
 pub enum RowValue<'a> {
     Mono(&'a str),
     Text(&'a str),
@@ -932,8 +938,8 @@ pub fn navigation_button(ui: &mut Ui, label: &str, sidebar: Option<bool>) -> egu
     labeled(ui, response, label)
 }
 fn tile_color(name: &str) -> Tile {
-    let hash = name.bytes().fold(0x811c9dc5_u32, |hash, byte| {
-        (hash ^ u32::from(byte)).wrapping_mul(0x01000193)
+    let hash = name.bytes().fold(0x811c_9dc5_u32, |hash, byte| {
+        (hash ^ u32::from(byte)).wrapping_mul(0x0100_0193)
     });
     TILES[hash as usize % TILES.len()]
 }
@@ -994,7 +1000,11 @@ pub fn wallet_row(ui: &mut Ui, name: &str, subtitle: &str, selected: bool) -> eg
     let subtitle = truncated(subtitle, FontId::proportional(11.0), subtitle_ink);
     let block = title.size().y + subtitle.size().y + 1.0;
     let top = rect.center().y - block / 2.0;
-    painter.galley(egui::pos2(text_left, top), title.clone(), title_ink);
+    painter.galley(
+        egui::pos2(text_left, top),
+        std::sync::Arc::clone(&title),
+        title_ink,
+    );
     painter.galley(
         egui::pos2(text_left, top + title.size().y + 1.0),
         subtitle,

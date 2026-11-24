@@ -89,6 +89,7 @@ impl Catalog {
             .custom_flags(libc::O_NOFOLLOW)
             .open(parent.join("wallets.lock"))
             .map_err(|_| Failure::Catalog)?;
+        // SAFETY: `lock` is an open file, so its descriptor is valid for this call.
         if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
             return Err(Failure::Catalog);
         }
@@ -263,7 +264,7 @@ mod tests {
                 let c = &c;
                 scope.spawn(move || {
                     c.upsert(WalletSummary::named(format!("wallet-{i}")))
-                        .unwrap()
+                        .unwrap();
                 });
             }
         });

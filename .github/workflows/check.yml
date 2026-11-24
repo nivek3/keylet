@@ -65,7 +65,7 @@ jobs:
           cache-dependency-path: node/pnpm-lock.yaml
       - name: Install Rust
         run: |
-          rustup toolchain install stable --profile minimal
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
@@ -73,6 +73,11 @@ jobs:
           env-vars: MACOSX_DEPLOYMENT_TARGET
       - name: Install Node development dependencies
         run: pnpm --dir node install --frozen-lockfile --ignore-scripts
+      # Lints are configured in .cargo/config.toml.
+      - name: Format and lint
+        run: |
+          cargo fmt --all --check
+          cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: Rust tests
         run: cargo test --workspace --locked
       - name: Build Node addon and declarations

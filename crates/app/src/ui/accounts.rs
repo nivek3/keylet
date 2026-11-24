@@ -79,7 +79,7 @@ impl AccountView {
                 return Err(Failure::Input);
             }
             let index = self.index.parse::<u32>().map_err(|_| Failure::Input)?;
-            if index >= 0x80000000 {
+            if index >= 0x8000_0000 {
                 return Err(Failure::Input);
             }
             crate::model::account_path(self.curve, index)
@@ -197,17 +197,16 @@ impl AccountView {
         if let Some(address) = known {
             return Some(AddressAction::Copy(address));
         }
-        match self.request() {
-            Ok(request) => Some(AddressAction::Derive(request)),
-            Err(_) => {
-                self.message = if self.full_path {
-                    "Enter a valid derivation path. Solana requires every component to be hardened."
-                } else {
-                    "Enter a whole-number index from 0 to 2147483647."
-                }
-                .into();
-                None
+        if let Ok(request) = self.request() {
+            Some(AddressAction::Derive(request))
+        } else {
+            self.message = if self.full_path {
+                "Enter a valid derivation path. Solana requires every component to be hardened."
+            } else {
+                "Enter a whole-number index from 0 to 2147483647."
             }
+            .into();
+            None
         }
     }
 }
@@ -281,7 +280,7 @@ impl WalletApp {
                     }
                     Err(error) => {
                         self.account_view.message =
-                            format!("Address not copied ({}).", error.code())
+                            format!("Address not copied ({}).", error.code());
                     }
                 }
             }

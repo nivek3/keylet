@@ -16,7 +16,20 @@ use objc2_app_kit::{
 use objc2_foundation::{NSBundle, NSString};
 use objc2_local_authentication::LAContext;
 use security_framework_sys::{
-    access_control::*, code_signing::*, item::*, keychain_item::*, random::*,
+    access_control::{
+        SecAccessControlCreateWithFlags, kSecAccessControlUserPresence,
+        kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+    },
+    code_signing::{SecCodeCheckValidity, SecCodeCopySelf, SecCodeRef, SecStaticCodeRef},
+    item::{
+        kSecAttrAccessControl, kSecAttrAccessGroup, kSecAttrAccount, kSecAttrLabel,
+        kSecAttrService, kSecAttrSynchronizable, kSecClass, kSecClassGenericPassword,
+        kSecMatchLimit, kSecMatchLimitAll, kSecReturnAttributes, kSecReturnData,
+        kSecReturnPersistentRef, kSecUseAuthenticationContext, kSecUseDataProtectionKeychain,
+        kSecValueData,
+    },
+    keychain_item::{SecItemAdd, SecItemCopyMatching, SecItemDelete, SecItemUpdate},
+    random::{SecRandomCopyBytes, kSecRandomDefault},
 };
 use std::{
     cell::Cell,
@@ -67,21 +80,25 @@ fn status(code: i32) -> Result<()> {
     }
 }
 
-// SAFETY: Security exports these CFString constants for the lifetime of the process.
+/// Wraps one of Security's `CFString` key constants.
+///
+/// # Safety
+///
+/// `key` must be a valid `CFStringRef`, such as a process-lifetime Security constant.
 unsafe fn symbol(key: CFStringRef) -> CFString {
+    // SAFETY: the caller passes a valid CFString; the get rule retains it, so the wrapper owns its own reference.
     unsafe { CFString::wrap_under_get_rule(key) }
 }
 
-// SAFETY: Security exports these CFString constants for the lifetime of the process.
 fn value(dict: &Dict, key: &str) -> Option<CFType> {
     dict.find(CFString::new(key)).map(|v| (*v).clone())
 }
 
-// SAFETY: Security exports these CFString constants for the lifetime of the process.
-fn dictionary(value: CFType) -> Result<Dict> {
+fn dictionary(value: &CFType) -> Result<Dict> {
     let untyped = value
         .downcast::<CFDictionary>()
         .ok_or(Failure::Configuration)?;
+    // SAFETY: `untyped` is a live CFDictionary; the get rule retains it for the typed wrapper.
     Ok(unsafe { Dict::wrap_under_get_rule(untyped.as_concrete_TypeRef()) })
 }
 fn string(value: Option<CFType>) -> Option<String> {
@@ -91,9 +108,11 @@ fn validate_signing(info: &Dict, bundle: &str, group: &str) -> Result<()> {
     if !group.ends_with(&format!(".{bundle}")) || group.contains('*') {
         return Err(Failure::Configuration);
     }
+    // SAFETY: Security exports these keys as process-lifetime CFString constants.
     let ent_key = unsafe { symbol(kSecCodeInfoEntitlementsDict) }.to_string();
+    // SAFETY: Security exports these keys as process-lifetime CFString constants.
     let flags_key = unsafe { symbol(kSecCodeInfoFlags) }.to_string();
-    let ent = dictionary(value(info, &ent_key).ok_or(Failure::Configuration)?)?;
+    let ent = dictionary(&value(info, &ent_key).ok_or(Failure::Configuration)?)?;
     let flags = value(info, &flags_key)
         .and_then(|v| v.downcast::<CFNumber>())
         .and_then(|n| n.to_i64())
@@ -104,6 +123,7 @@ fn validate_signing(info: &Dict, bundle: &str, group: &str) -> Result<()> {
     let groups: Vec<_> = groups
         .get_all_values()
         .into_iter()
+        // SAFETY: the values are borrowed from `groups`, which is alive; the get rule retains each one.
         .map(|v| unsafe { string(Some(CFType::wrap_under_get_rule(v))) })
         .collect();
     if groups != [Some(group.to_owned())]
@@ -130,6 +150,7 @@ fn validate_signing(info: &Dict, bundle: &str, group: &str) -> Result<()> {
 pub struct AuthContext(Retained<LAContext>);
 impl AuthContext {
     pub fn new(reason: &str, no_interaction: bool) -> Self {
+        // SAFETY: the context is new and not yet shared; each setter takes a valid value.
         unsafe {
             let context = LAContext::new();
             context.setTouchIDAuthenticationAllowableReuseDuration(0.0);
@@ -140,11 +161,13 @@ impl AuthContext {
         }
     }
     fn as_cf(&self) -> CFType {
+        // SAFETY: `self.0` keeps the LAContext alive, and an Objective-C object is a valid CF object; the get rule retains it.
         unsafe { CFType::wrap_under_get_rule(Retained::as_ptr(&self.0).cast()) }
     }
 }
 impl Drop for AuthContext {
     fn drop(&mut self) {
+        // SAFETY: invalidating a context this wrapper owns is always valid; later evaluations fail instead of prompting.
         unsafe {
             self.0.invalidate();
         }
@@ -221,9 +244,10 @@ impl Vault {
         {
             return Err(Failure::Configuration);
         }
+        // SAFETY: each Copy call writes an owned (+1) reference only on success; null is checked, and each result is wrapped under the create rule so it is released exactly once.
         unsafe {
             let mut code = ptr::null_mut();
-            if SecCodeCopySelf(0, &mut code) != 0 || code.is_null() {
+            if SecCodeCopySelf(0, &raw mut code) != 0 || code.is_null() {
                 return Err(Failure::Configuration);
             }
             let _code = CFType::wrap_under_create_rule(code.cast());
@@ -231,12 +255,13 @@ impl Vault {
                 return Err(Failure::Configuration);
             }
             let mut static_code = ptr::null_mut();
-            if SecCodeCopyStaticCode(code, 0, &mut static_code) != 0 || static_code.is_null() {
+            if SecCodeCopyStaticCode(code, 0, &raw mut static_code) != 0 || static_code.is_null() {
                 return Err(Failure::Configuration);
             }
             let _static = CFType::wrap_under_create_rule(static_code.cast());
             let mut info = ptr::null();
-            if SecCodeCopySigningInformation(static_code, 1 << 1, &mut info) != 0 || info.is_null()
+            if SecCodeCopySigningInformation(static_code, 1 << 1, &raw mut info) != 0
+                || info.is_null()
             {
                 return Err(Failure::Configuration);
             }
@@ -300,7 +325,7 @@ impl Vault {
             ));
             let query = Dict::from_CFType_pairs(&query);
             let mut result = ptr::null();
-            match SecItemCopyMatching(query.as_concrete_TypeRef(), &mut result) {
+            match SecItemCopyMatching(query.as_concrete_TypeRef(), &raw mut result) {
                 ITEM_NOT_FOUND => Ok(0),
                 0 if !result.is_null() => {
                     let data = CFType::wrap_under_create_rule(result)
@@ -366,13 +391,14 @@ impl Vault {
     }
 
     fn insert_protected(&self, service: &str, name: &str, label: &str, data: &[u8]) -> Result<()> {
+        // SAFETY: the query and access-control wrappers outlive SecItemAdd; created objects are wrapped under the create rule and released once.
         unsafe {
             let mut error = ptr::null_mut();
             let acl = SecAccessControlCreateWithFlags(
                 ptr::null(),
                 kSecAttrAccessibleWhenUnlockedThisDeviceOnly.cast(),
                 kSecAccessControlUserPresence,
-                &mut error,
+                &raw mut error,
             );
             if !error.is_null() {
                 let _ = CFType::wrap_under_create_rule(error.cast());
@@ -427,7 +453,7 @@ impl Vault {
             let mut result = ptr::null();
             status(SecItemCopyMatching(
                 Dict::from_CFType_pairs(q).as_concrete_TypeRef(),
-                &mut result,
+                &raw mut result,
             ))?;
             if result.is_null() {
                 return Err(Failure::Corrupt);
@@ -465,6 +491,7 @@ impl Vault {
     }
 
     fn names_query(&self, context: &AuthContext) -> Dict {
+        // SAFETY: Security exports these keys as process-lifetime CFString constants.
         unsafe {
             let mut q = self.query(None);
             q.push((symbol(kSecUseAuthenticationContext), context.as_cf()));
@@ -480,10 +507,11 @@ impl Vault {
         }
     }
     fn names_with_context(&self, context: &AuthContext) -> Result<Vec<String>> {
+        // SAFETY: the query outlives SecItemCopyMatching; a non-null result is an owned reference wrapped under the create rule, and rows are borrowed from it while it is alive.
         unsafe {
             let q = self.names_query(context);
             let mut output = ptr::null();
-            let code = SecItemCopyMatching(q.as_concrete_TypeRef(), &mut output);
+            let code = SecItemCopyMatching(q.as_concrete_TypeRef(), &raw mut output);
             if code == ITEM_NOT_FOUND {
                 return Ok(Vec::new());
             }
@@ -497,7 +525,7 @@ impl Vault {
             let mut names = Vec::new();
             for row in rows.get_all_values() {
                 let row =
-                    dictionary(CFType::wrap_under_get_rule(row)).map_err(|_| Failure::Corrupt)?;
+                    dictionary(&CFType::wrap_under_get_rule(row)).map_err(|_| Failure::Corrupt)?;
                 if let Some(name) = string(value(&row, &symbol(kSecAttrAccount).to_string())) {
                     names.push(name);
                 }
@@ -581,7 +609,7 @@ impl Vault {
             ));
             let deletion = {
                 // Fetch protected data and identity in the same authenticated lookup.
-                let item = dictionary(Self::copy_item(&q)?).map_err(|_| Failure::Corrupt)?;
+                let item = dictionary(&Self::copy_item(&q)?).map_err(|_| Failure::Corrupt)?;
                 let data = item.find(symbol(kSecValueData)).ok_or(Failure::Corrupt)?;
                 validate(&data)?;
                 Self::delete_query(&item, context)?
@@ -625,6 +653,7 @@ pub fn generate_mnemonic() -> Result<Zeroizing<String>> {
 
 pub fn random_secret<const N: usize>() -> Result<Zeroizing<[u8; N]>> {
     let mut entropy = Zeroizing::new([0u8; N]);
+    // SAFETY: `entropy` is a writable buffer of exactly N bytes.
     if unsafe { SecRandomCopyBytes(kSecRandomDefault, N, entropy.as_mut_ptr().cast()) } != 0 {
         return Err(Failure::Keychain);
     }
@@ -638,6 +667,7 @@ impl SecureInput {
     }
     pub fn set(&mut self, enabled: bool) -> Result<()> {
         if self.0 != enabled {
+            // SAFETY: these calls take no arguments; `self.0` tracks the state so enable and disable stay balanced.
             if unsafe {
                 if enabled {
                     EnableSecureEventInput()
@@ -728,8 +758,9 @@ pub struct ClipboardGate {
 impl ClipboardGate {
     pub fn new() -> Result<Self> {
         let blocked = Rc::new(Cell::new(true));
-        let gate = blocked.clone();
+        let gate = Rc::clone(&blocked);
         let block = block2::RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+            // SAFETY: AppKit passes a valid event that lives for the duration of the handler.
             let e = unsafe { event.as_ref() };
             if gate.get() && e.modifierFlags().contains(NSEventModifierFlags::Command) {
                 let key = e
@@ -742,6 +773,7 @@ impl ClipboardGate {
             }
             event.as_ptr()
         });
+        // SAFETY: AppKit retains the block; the handler only reads the event and returns it or null.
         let monitor = unsafe {
             NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &block)
         }
@@ -754,6 +786,7 @@ impl ClipboardGate {
 }
 impl Drop for ClipboardGate {
     fn drop(&mut self) {
+        // SAFETY: `monitor` came from addLocalMonitorForEventsMatchingMask and is removed exactly once.
         unsafe {
             NSEvent::removeMonitor(&self.monitor);
         }
@@ -806,7 +839,7 @@ mod tests {
     #[test]
     fn system_entropy_generates_a_valid_twelve_word_wallet_without_persistence() {
         let phrase = generate_mnemonic().unwrap();
-        assert!(phrase.split_whitespace().count() == 12);
+        assert_eq!(phrase.split_whitespace().count(), 12);
         let wallet = StoredWallet {
             version: 1,
             mnemonic: phrase.to_string(),
@@ -871,16 +904,22 @@ mod tests {
             clipboard.paste_confirmation().unwrap().as_str(),
             "new unrelated content"
         );
+        // SAFETY: `releaseGlobally` takes no arguments and returns nothing; `board` is a live pasteboard.
         unsafe {
             let _: () = objc2::msg_send![&*board, releaseGlobally];
         }
     }
     #[test]
+    #[expect(
+        clippy::float_cmp,
+        reason = "the reuse duration must be exactly zero, not approximately"
+    )]
     fn private_data_protection_query_and_fresh_authentication_context() {
         let vault = Vault {
             group: "PREFIX.com.example.Wallet".into(),
         };
         let query = Dict::from_CFType_pairs(&vault.query(Some("public-test")));
+        // SAFETY: Security exports these keys as process-lifetime CFString constants.
         unsafe {
             assert_eq!(
                 value(&query, &symbol(kSecUseDataProtectionKeychain).to_string()),
@@ -921,6 +960,7 @@ mod tests {
         let wallet = Dict::from_CFType_pairs(&vault.query(Some("public-test")));
         let signer =
             Dict::from_CFType_pairs(&vault.item_query(SIGNER_SERVICE, Some("public-test")));
+        // SAFETY: Security exports these keys as process-lifetime CFString constants.
         unsafe {
             assert_ne!(
                 wallet.find(symbol(kSecAttrService)),
@@ -994,6 +1034,7 @@ mod tests {
                     CFBoolean::from(debug).as_CFType(),
                 ),
             ]);
+            // SAFETY: Security exports these keys as process-lifetime CFString constants.
             unsafe {
                 Dict::from_CFType_pairs(&[
                     (symbol(kSecCodeInfoEntitlementsDict), ent.as_CFType()),

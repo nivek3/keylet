@@ -98,10 +98,10 @@ impl KeyRequest {
     }
 }
 pub fn validate_name(name: &str) -> Result<()> {
-    if !wallet_crypto::valid_wallet_name(name) {
-        Err(Failure::Input)
-    } else {
+    if wallet_crypto::valid_wallet_name(name) {
         Ok(())
+    } else {
+        Err(Failure::Input)
     }
 }
 

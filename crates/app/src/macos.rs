@@ -29,8 +29,7 @@ use zeroize::Zeroizing;
 type Dict = CFDictionary<CFString, CFType>;
 const SETTINGS_SERVICE: &str = "local.keylet.settings.v1";
 const WALLET_SERVICE: &str = "local.keylet.mnemonic.v1";
-// Historical name: this service now holds both Ed25519 and secp256k1 signers.
-const SIGNER_SERVICE: &str = "local.keylet.ed25519-signer.v1";
+const SIGNER_SERVICE: &str = "local.keylet.signer.v1";
 const NODE_TTL_ACCOUNT: &str = "node-authentication-ttl";
 const SIGNER_TTL_ACCOUNT: &str = "signer-authentication-ttl";
 const ITEM_NOT_FOUND: i32 = -25300;

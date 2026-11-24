@@ -237,8 +237,7 @@ pub fn run(vault: &Vault, operation: &str, name: &str, args: &[String]) -> Resul
             response["path"] = path.into();
             emit(&response)
         }
-        // `address` is the original name of this command.
-        "public-key" | "address" => {
+        "public-key" => {
             parse_options(args, &[])?;
             macos::initialize_accessory()?;
             let context = AuthContext::new(
@@ -345,22 +344,26 @@ mod tests {
     }
 
     #[test]
-    fn signer_keys_round_trip_and_keep_legacy_ed25519_entries() {
-        let legacy = SignerKey::decode(&[9; 32]).unwrap();
-        assert_eq!(legacy.curve, Curve::Ed25519);
-        assert_eq!(*legacy.encode(), vec![9; 32]);
-        let secp = SignerKey {
-            curve: Curve::Secp256k1,
-            secret: Zeroizing::new([9; 32]),
-        };
-        let encoded = secp.encode();
-        assert_eq!(encoded.len(), 33);
-        let decoded = SignerKey::decode(&encoded).unwrap();
-        assert_eq!(
-            (decoded.curve, *decoded.secret),
-            (Curve::Secp256k1, [9; 32])
-        );
-        for invalid in [&[][..], &[1; 31][..], &[2; 33][..], &[1; 34][..]] {
+    fn signer_keys_round_trip_with_a_curve_tag() {
+        for (curve, tag) in [(Curve::Ed25519, 0), (Curve::Secp256k1, 1)] {
+            let key = SignerKey {
+                curve,
+                secret: Zeroizing::new([9; 32]),
+            };
+            let encoded = key.encode();
+            assert_eq!(encoded[0], tag);
+            assert_eq!(&encoded[1..], &[9; 32]);
+            let decoded = SignerKey::decode(&encoded).unwrap();
+            assert_eq!((decoded.curve, *decoded.secret), (curve, [9; 32]));
+        }
+        // Untagged 32-byte data, unknown tags, and wrong lengths are rejected.
+        for invalid in [
+            &[][..],
+            &[9; 32][..],
+            &[0; 32][..],
+            &[2; 33][..],
+            &[1; 34][..],
+        ] {
             assert!(SignerKey::decode(invalid).is_err());
         }
         // A zero scalar is not a valid secp256k1 key.

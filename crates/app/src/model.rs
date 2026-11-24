@@ -445,21 +445,23 @@ pub struct SignerKey {
     pub secret: Zeroizing<[u8; 32]>,
 }
 impl SignerKey {
-    /// Keychain encoding. Ed25519 keeps the original raw 32-byte seed so
-    /// existing signers stay readable; secp256k1 adds a one-byte tag.
+    // Keychain encoding: one curve tag byte followed by the 32-byte secret.
+    const ED25519_TAG: u8 = 0;
     const SECP256K1_TAG: u8 = 1;
     pub fn encode(&self) -> Zeroizing<Vec<u8>> {
         let mut data = Zeroizing::new(Vec::with_capacity(33));
-        if self.curve == Curve::Secp256k1 {
-            data.push(Self::SECP256K1_TAG);
-        }
+        data.push(match self.curve {
+            Curve::Ed25519 => Self::ED25519_TAG,
+            Curve::Secp256k1 => Self::SECP256K1_TAG,
+        });
         data.extend_from_slice(&*self.secret);
         data
     }
     pub fn decode(data: &[u8]) -> Result<Self> {
-        let (curve, secret) = match (data.len(), data.first()) {
-            (32, _) => (Curve::Ed25519, data),
-            (33, Some(&Self::SECP256K1_TAG)) => (Curve::Secp256k1, &data[1..]),
+        let (&tag, secret) = data.split_first().ok_or(Failure::Corrupt)?;
+        let curve = match tag {
+            Self::ED25519_TAG => Curve::Ed25519,
+            Self::SECP256K1_TAG => Curve::Secp256k1,
             _ => return Err(Failure::Corrupt),
         };
         let key = Self {

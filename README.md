@@ -36,6 +36,7 @@ https://github.com/user-attachments/assets/3554d122-92ed-412b-bce7-057f6dcdcdff
 - Copies Ethereum / Solana addresses by index or full derivation path under **Derived accounts** in wallet details. Cached indices copy directly; other indices and custom paths require authentication once, after which the address is remembered.
 - Reveals a recovery phrase or deletes a wallet after authentication and explicit user action.
 - Returns secp256k1 or SLIP-0010 Ed25519 key pairs through Node.js and Python APIs.
+- Keeps device-local Ed25519 and secp256k1 [signers](#local-signing) that return signatures instead of keys, with optional time-limited signing sessions.
 
 Useful for local scripts and developer tools that need derived keys, with recovery phrases stored in Keychain under macOS system authentication.
 
@@ -126,18 +127,40 @@ Recovering an existing account requires the original derivation path and BIP-39 
 
 ## Local signing
 
-The signed macOS app can generate a dedicated Ed25519 key on this Mac and store it as a separate entry in its private Keychain group. The CLI returns the public address and signature. The wallet SDK's `getKeyPair()` and the recovery phrase UI do not read these signer entries.
+The signed macOS app can hold dedicated signing keys as separate entries in its private Keychain group. Signers are chain-agnostic: an Ed25519 signer covers Solana, and a secp256k1 signer covers Ethereum and Bitcoin. The CLI returns public keys and signatures, never private keys. The wallet SDK's `getKeyPair()` and the recovery phrase UI do not read signer entries.
 
 ```sh
 keylet=./build/Keylet.app/Contents/MacOS/keylet
-"$keylet" signer create agent
-"$keylet" signer address agent
-"$keylet" signer sign agent < message.bin
+"$keylet" signer create sol                                # random Ed25519 key (default)
+"$keylet" signer create evm --curve secp256k1              # random secp256k1 key
+"$keylet" signer derive btc --wallet trading --curve secp256k1 --path "m/84'/0'/0'/0/0"
+"$keylet" signer public-key evm
+"$keylet" signer sign sol < message.bin
 ```
 
-`sign` reads 1 to 1232 raw bytes from standard input and returns a Base58 address and a 64-byte Ed25519 signature as `0x`-prefixed hex. For Solana transactions, supply the serialized transaction **message**. The caller assembles and submits the signed transaction.
+A signer is either a **random key** generated on this Mac, which has no backup, or a **copy derived from a wallet**. `derive` authenticates once to read the wallet, copies the key at `--path` into the signer entry, and never reads the recovery phrase again. The key can be recovered from the recovery phrase and path. Deleting the wallet does not delete the signer. secp256k1 accepts any BIP-32 path of up to ten levels; Ed25519 requires a hardened-only path.
 
-Each signing request uses a fresh macOS authentication context. The prompt identifies the signer, byte count, and SHA3-256 digest. Verify the payload before approving. Keylet signs the supplied bytes without decoding them or applying transaction policies. Signer keys are device-local and have no export or recovery command. To permanently remove a key, run `"$keylet" signer delete agent` and authenticate.
+`sign` reads raw bytes from standard input:
+
+- **Ed25519**: 1 to 1232 bytes. For Solana, supply the serialized transaction **message**. Returns `publicKey`, the Base58 `address`, and a 64-byte `signature`.
+- **secp256k1**: exactly one 32-byte digest, such as an Ethereum transaction hash, an EIP-191 or EIP-712 hash, or a Bitcoin sighash. Returns the 33-byte compressed `publicKey`, a 64-byte `signature` (`r || s`, low-S, RFC 6979), and `recoveryId` (0 or 1). The caller encodes it, for example `v = recoveryId + 27` or EIP-155 for Ethereum, or DER plus a sighash byte for Bitcoin. Taproot (Schnorr) is not supported.
+
+Keylet does not derive chain addresses for secp256k1 signers; compute them from the public key. The caller builds, encodes, and submits the transaction.
+
+### Signing sessions
+
+`session` keeps one process open and signs one request per line, so a script can sign repeatedly without starting a new process:
+
+```sh
+"$keylet" signer session evm --ttl 300
+{"payload":"0x<32-byte digest as hex>"}
+```
+
+Each response line has the same fields as `sign`. Any error ends the session. Set **… → Settings → Reuse signer auth** to let a session skip prompts for that many minutes after a successful authentication. `--ttl` can only shorten that window. The default is `0`, which prompts for every signature. The window does not extend with use, and the saved setting also applies to sessions already running. Each session process authenticates separately.
+
+**Keylet signs blindly.** It never decodes payloads or applies transaction policies such as amount limits, allowlists, or swap checks; implement those in the calling service. Each prompt shows the signer, byte count, and the payload itself if it is 32 bytes or less (otherwise its SHA3-256 digest). The first prompt of a session also states the reuse window. During the window, the process holding the session can sign anything. Use a dedicated signer with limited funds, and keep the window short.
+
+Signer keys are device-local and have no export command. To permanently remove a key, run `"$keylet" signer delete <name>` and authenticate.
 
 ## Development and documentation
 

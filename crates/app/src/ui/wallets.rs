@@ -253,13 +253,17 @@ impl WalletApp {
     fn open_settings(&mut self) {
         self.wipe_draft();
         self.message.clear();
-        self.authentication_minutes = match self.vault.authentication_ttl() {
+        let mut minutes = |ttl: crate::model::Result<u64>| match ttl {
             Ok(seconds) => (seconds / 60).to_string(),
             Err(_) => {
                 self.message = "Unable to read settings. Enter a duration to save.".into();
                 String::new()
             }
         };
+        let node = minutes(self.vault.authentication_ttl());
+        let signer = minutes(self.vault.signer_authentication_ttl());
+        self.authentication_minutes = node;
+        self.signer_authentication_minutes = signer;
         self.stage = Stage::Settings;
     }
 

@@ -1,5 +1,8 @@
 //! Shared wallet derivation and selection rules.
-use bip32::{DerivationPath, XPrv, secp256k1::ecdsa::VerifyingKey};
+use bip32::{
+    DerivationPath, XPrv,
+    secp256k1::ecdsa::{SigningKey, VerifyingKey},
+};
 use bip39::{Language, Mnemonic};
 use derivation_path::DerivationPath as EdPath;
 use serde::{Deserialize, Serialize};
@@ -52,6 +55,32 @@ impl Curve {
             }
             Self::Ed25519 => parts.all(hardened),
         }
+    }
+
+    /// Check a path for a local signer copied from a wallet.
+    ///
+    /// Signers are chain-agnostic, so secp256k1 accepts any BIP-32 path of one
+    /// to ten levels (for example Ethereum `m/44'/60'/0'/0/0` or Bitcoin
+    /// `m/84'/0'/0'/0/0`). Ed25519 keeps the hardened-only SLIP-0010 rule.
+    pub fn valid_signer_path(self, path: &str) -> bool {
+        if path.len() > 128 {
+            return false;
+        }
+        let Some(path) = path.strip_prefix("m/") else {
+            return false;
+        };
+        let index = |text: &str| {
+            !text.is_empty()
+                && text.bytes().all(|byte| byte.is_ascii_digit())
+                && text.parse::<u32>().is_ok_and(|index| index < 0x80000000)
+        };
+        let parts: Vec<_> = path.split('/').collect();
+        let hardened = |part: &&str| part.strip_suffix('\'').is_some_and(index);
+        (1..=10).contains(&parts.len())
+            && match self {
+                Self::Secp256k1 => parts.iter().all(|part| hardened(part) || index(part)),
+                Self::Ed25519 => parts.iter().all(hardened),
+            }
     }
 }
 
@@ -199,6 +228,28 @@ pub fn mnemonic_from_entropy(entropy: &[u8; 16]) -> Result<Zeroizing<String>, De
     Mnemonic::from_entropy_in(Language::English, entropy)
         .map(|m| Zeroizing::new(m.to_string()))
         .map_err(|_| DeriveError::InvalidMnemonic)
+}
+
+/// Return the compressed SEC1 public key for a secp256k1 secret key.
+///
+/// Returns `None` if the secret is zero or not below the curve order.
+pub fn secp256k1_public_key(secret: &[u8; 32]) -> Option<[u8; 33]> {
+    let key = SigningKey::from_slice(secret).ok()?;
+    Some(EvmPublicKey(*key.verifying_key()).compressed_bytes())
+}
+
+/// Sign a 32-byte prehash with secp256k1 ECDSA.
+///
+/// Signing is deterministic (RFC 6979) and low-S normalized, as Bitcoin and
+/// Ethereum require. Returns `r || s` and the recovery ID (0 or 1). The caller
+/// encodes it, for example as DER for Bitcoin or as `v` for Ethereum.
+/// Returns `None` if the secret is invalid.
+pub fn secp256k1_sign_prehash(secret: &[u8; 32], digest: &[u8; 32]) -> Option<([u8; 64], u8)> {
+    let key = SigningKey::from_slice(secret).ok()?;
+    let (signature, recovery) = key.sign_prehash_recoverable(digest);
+    let mut bytes = [0; 64];
+    bytes.copy_from_slice(signature.to_bytes().as_slice());
+    Some((bytes, recovery.to_byte()))
 }
 
 #[cfg(test)]
@@ -373,5 +424,62 @@ mod tests {
             Seed::new("abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon", "").err(),
             Some(DeriveError::InvalidMnemonic)
         );
+    }
+
+    #[test]
+    fn signer_paths_accept_any_chain_but_keep_ed25519_hardened() {
+        for path in [
+            "m/44'/60'/0'/0/0",
+            "m/84'/0'/0'/0/7",
+            "m/0",
+            "m/1/2/3/4/5/6/7/8/9/10",
+        ] {
+            assert!(Curve::Secp256k1.valid_signer_path(path), "{path}");
+        }
+        for path in [
+            "m",
+            "m/",
+            "44'/0'",
+            "m/2147483648",
+            "m/1//2",
+            "m/1/2/3/4/5/6/7/8/9/10/11",
+            "m/0h",
+        ] {
+            assert!(!Curve::Secp256k1.valid_signer_path(path), "{path}");
+        }
+        assert!(Curve::Ed25519.valid_signer_path("m/44'/501'/0'/0'"));
+        assert!(!Curve::Ed25519.valid_signer_path("m/44'/501'/0'/0"));
+    }
+
+    #[test]
+    fn secp256k1_signatures_are_low_s_and_recover_the_signer() {
+        use bip32::secp256k1::ecdsa::{RecoveryId, Signature};
+        let (secret, public) = derive(WORDS, "", Curve::Secp256k1, PATH).unwrap();
+        let PublicKey::Secp256k1(public) = public else {
+            panic!("expected a secp256k1 public key");
+        };
+        assert_eq!(
+            secp256k1_public_key(&secret),
+            Some(public.compressed_bytes())
+        );
+        for digest in [[0; 32], [0xff; 32], *Keccak256::digest(b"keylet").as_ref()] {
+            let (bytes, recovery) = secp256k1_sign_prehash(&secret, &digest).unwrap();
+            assert_eq!(secp256k1_sign_prehash(&secret, &digest).unwrap().0, bytes);
+            let signature = Signature::from_slice(&bytes).unwrap();
+            assert_eq!(signature.normalize_s(), signature);
+            let recovered = VerifyingKey::recover_from_prehash(
+                &digest,
+                &signature,
+                RecoveryId::from_byte(recovery).unwrap(),
+            )
+            .unwrap();
+            // Hardhat account 0, recovered from the signature alone.
+            assert_eq!(
+                EvmPublicKey(recovered).ethereum_address(),
+                public.ethereum_address()
+            );
+        }
+        assert!(secp256k1_public_key(&[0; 32]).is_none());
+        assert!(secp256k1_sign_prehash(&[0xff; 32], &[1; 32]).is_none());
     }
 }

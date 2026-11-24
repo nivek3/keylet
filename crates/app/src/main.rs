@@ -26,11 +26,13 @@ fn pipe_descriptor(fd: i32) -> bool {
         matches!(stat.st_mode & libc::S_IFMT, libc::S_IFIFO | libc::S_IFSOCK)
     }
 }
-fn read_request(
+/// Read one newline-terminated frame. While waiting on `fd`, an idle session expires on time.
+fn read_frame(
     input: &mut impl Read,
     session: &mut macos::AuthenticationSession,
     fd: Option<i32>,
-) -> Result<Option<KeyRequest>> {
+    max_len: usize,
+) -> Result<Option<Vec<u8>>> {
     let mut data = Vec::new();
     loop {
         if let Some(fd) = fd {
@@ -70,10 +72,20 @@ fn read_request(
             break;
         }
         data.push(byte[0]);
-        if data.len() > 2048 {
+        if data.len() > max_len {
             return Err(Failure::Input);
         }
     }
+    Ok(Some(data))
+}
+fn read_request(
+    input: &mut impl Read,
+    session: &mut macos::AuthenticationSession,
+    fd: Option<i32>,
+) -> Result<Option<KeyRequest>> {
+    let Some(data) = read_frame(input, session, fd, 2048)? else {
+        return Ok(None);
+    };
     let request: KeyRequest = serde_json::from_slice(&data).map_err(|_| Failure::Input)?;
     request.validate()?;
     Ok(Some(request))
@@ -142,10 +154,10 @@ fn main_impl() -> Result<()> {
     if args.len() == 2 && args[0] == "--bridge" {
         return bridge(&vault, args[1].parse().map_err(|_| Failure::Input)?);
     }
-    if let [command, operation, name] = args.as_slice()
+    if let [command, operation, name, options @ ..] = args.as_slice()
         && command == "signer"
     {
-        return signer::run(&vault, operation, name);
+        return signer::run(&vault, operation, name, options);
     }
     if args == ["list"] {
         macos::initialize_accessory()?;

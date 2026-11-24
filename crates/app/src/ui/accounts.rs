@@ -51,9 +51,13 @@ impl AccountView {
             };
         }
     }
+    /// Adopts the wallet's current display cache. An address derived earlier belongs to
+    /// the previous cache, so it is dropped when the cache changes (e.g. after Sync from
+    /// Keychain); a fresh derivation is remembered in the new cache and still shows.
     pub(super) fn set_cached(&mut self, entry: &WalletSummary) {
         if self.cached != *entry {
             self.cached = entry.clone();
+            self.address = None;
         }
     }
     /// The address for the current inputs without reading the key: the one derived
@@ -488,6 +492,35 @@ mod tests {
             assert!(view.request().is_err());
             view.full_path = false;
         }
+    }
+
+    #[test]
+    fn a_changed_cache_replaces_the_derived_address() {
+        let stored = |mnemonic: &str| StoredWallet {
+            version: 1,
+            mnemonic: mnemonic.into(),
+            passphrase: String::new(),
+        };
+        let old = stored("test test test test test test test test test test test junk");
+        let new = stored(
+            "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
+        );
+        let mut view = AccountView::default();
+        view.select_wallet("public-test");
+        view.index = "12".into();
+        let request = view.request().unwrap();
+        let old_address = derive(&old, &request, None).unwrap().address;
+        let mut summary = WalletSummary::from_wallet("public-test", &old, &[]).unwrap();
+        summary.remember(request.curve, &request.path, &old_address);
+        view.set_cached(&summary);
+        view.address = Some(old_address.clone());
+        // The wallet is replaced under the same name and Sync re-derives the cache.
+        let synced =
+            WalletSummary::from_wallet("public-test", &new, &summary.saved_accounts).unwrap();
+        view.set_cached(&synced);
+        let new_address = derive(&new, &request, None).unwrap().address;
+        assert_ne!(new_address, old_address);
+        assert_eq!(view.known_address(), Some(new_address));
     }
 
     #[test]

@@ -438,6 +438,57 @@ fn derive_failure(error: DeriveError) -> Failure {
         DeriveError::InvalidPath | DeriveError::DerivationFailed => Failure::Derivation,
     }
 }
+
+/// A device-local signing key: a random key or a copy derived from a wallet.
+pub struct SignerKey {
+    pub curve: Curve,
+    pub secret: Zeroizing<[u8; 32]>,
+}
+impl SignerKey {
+    /// Keychain encoding. Ed25519 keeps the original raw 32-byte seed so
+    /// existing signers stay readable; secp256k1 adds a one-byte tag.
+    const SECP256K1_TAG: u8 = 1;
+    pub fn encode(&self) -> Zeroizing<Vec<u8>> {
+        let mut data = Zeroizing::new(Vec::with_capacity(33));
+        if self.curve == Curve::Secp256k1 {
+            data.push(Self::SECP256K1_TAG);
+        }
+        data.extend_from_slice(&*self.secret);
+        data
+    }
+    pub fn decode(data: &[u8]) -> Result<Self> {
+        let (curve, secret) = match (data.len(), data.first()) {
+            (32, _) => (Curve::Ed25519, data),
+            (33, Some(&Self::SECP256K1_TAG)) => (Curve::Secp256k1, &data[1..]),
+            _ => return Err(Failure::Corrupt),
+        };
+        let key = Self {
+            curve,
+            secret: Zeroizing::new(secret.try_into().map_err(|_| Failure::Corrupt)?),
+        };
+        key.validate()?;
+        Ok(key)
+    }
+    pub fn validate(&self) -> Result<()> {
+        if self.curve == Curve::Secp256k1
+            && wallet_crypto::secp256k1_public_key(&self.secret).is_none()
+        {
+            return Err(Failure::Corrupt);
+        }
+        Ok(())
+    }
+}
+
+/// Copy the key at a wallet path into a standalone signer key.
+pub fn derive_signer(wallet: &StoredWallet, curve: Curve, path: &str) -> Result<SignerKey> {
+    if !curve.valid_signer_path(path) {
+        return Err(Failure::Input);
+    }
+    check_wallet(wallet)?;
+    let (secret, _) = wallet_crypto::derive(&wallet.mnemonic, &wallet.passphrase, curve, path)
+        .map_err(derive_failure)?;
+    Ok(SignerKey { curve, secret })
+}
 pub fn derive(
     wallet: &StoredWallet,
     request: &KeyRequest,

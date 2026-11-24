@@ -36,6 +36,7 @@ https://github.com/user-attachments/assets/3554d122-92ed-412b-bce7-057f6dcdcdff
 - 在钱包详情的 **Derived accounts** 中，按 index 或完整派生路径复制 Ethereum / Solana 地址。已缓存的 index 直接复制，其他 index 和自定义路径需认证一次，之后会记住该地址。
 - 认证并明确操作后显示助记词或删除钱包。
 - 通过 Node.js 和 Python API 返回 secp256k1 或 SLIP-0010 Ed25519 公私钥。
+- 提供绑定本机的 Ed25519 和 secp256k1 [签名密钥](#本地签名)，只返回签名、不返回私钥，并支持限时免确认的签名会话。
 
 适用于需要派生密钥的本机脚本和开发工具，助记词由 Keychain 保存，访问受 macOS 系统认证控制。
 
@@ -126,18 +127,40 @@ const keys = await getKeyPair({
 
 ## 本地签名
 
-已签名的 macOS App 支持创建独立的 Ed25519 签名密钥。Keylet 在本机生成密钥，并将它存到专用 Keychain 条目。CLI 返回公钥地址和签名，普通钱包的 `getKeyPair()` 和助记词界面无法读取这类密钥。
+已签名的 macOS App 可以把专用签名密钥存到私有 Keychain 组中的独立条目里。签名密钥（signer）与链无关：Ed25519 signer 用于 Solana，secp256k1 signer 用于 Ethereum 和 Bitcoin。CLI 只返回公钥和签名，不返回私钥。普通钱包的 `getKeyPair()` 和助记词界面无法读取 signer 条目。
 
 ```sh
 keylet=./build/Keylet.app/Contents/MacOS/keylet
-"$keylet" signer create agent
-"$keylet" signer address agent
-"$keylet" signer sign agent < message.bin
+"$keylet" signer create sol                                # 随机 Ed25519 密钥（默认）
+"$keylet" signer create evm --curve secp256k1              # 随机 secp256k1 密钥
+"$keylet" signer derive btc --wallet trading --curve secp256k1 --path "m/84'/0'/0'/0/0"
+"$keylet" signer public-key evm
+"$keylet" signer sign sol < message.bin
 ```
 
-`sign` 读取标准输入中的原始二进制内容（1 至 1232 字节），返回 Base58 地址和带 `0x` 前缀的 64 字节 Ed25519 签名。签 Solana 交易时，调用方提供序列化的交易 **message**。Keylet 签署输入的确切字节，由调用方组装并提交交易。
+signer 有两种来源：在本机生成的**随机密钥**（没有备份），或者**从钱包派生的副本**。`derive` 会认证一次以读取钱包，把 `--path` 对应的密钥复制到 signer 条目，之后不再读取助记词。这把密钥可以用助记词和路径恢复。删除钱包不会删除 signer。secp256k1 接受最多十级的任意 BIP-32 路径；Ed25519 只接受全 hardened 路径。
 
-签名会要求 macOS 认证，并在提示中显示密钥名、字节数和 SHA3-256 摘要。调用方需要在批准前确认内容。这条路径没有交易解析、额度或协议策略。签名密钥绑定本机，无导出和恢复入口。执行 `"$keylet" signer delete agent` 并认证会永久删除该密钥。
+`sign` 从标准输入读取原始字节：
+
+- **Ed25519**：1 至 1232 字节。签 Solana 交易时提供序列化的交易 **message**。返回 `publicKey`、Base58 `address` 和 64 字节 `signature`。
+- **secp256k1**：恰好一个 32 字节 digest，例如 Ethereum 交易哈希、EIP-191 或 EIP-712 哈希，或 Bitcoin sighash。返回 33 字节压缩公钥 `publicKey`、64 字节 `signature`（`r || s`，low-S，RFC 6979）和 `recoveryId`（0 或 1）。由调用方编码，例如 Ethereum 的 `v = recoveryId + 27` 或 EIP-155，Bitcoin 的 DER 加 sighash 字节。不支持 Taproot（Schnorr）。
+
+Keylet 不为 secp256k1 signer 生成链上地址，请由公钥自行计算。交易由调用方构造、编码和提交。
+
+### 签名会话
+
+`session` 保持一个进程常驻，每行处理一个请求，脚本可以连续签名而不必每次启动新进程：
+
+```sh
+"$keylet" signer session evm --ttl 300
+{"payload":"0x<32 字节 digest 的 hex>"}
+```
+
+每行响应的字段与 `sign` 相同。任何错误都会结束会话。在 **… → Settings → Reuse signer auth** 中设置分钟数后，会话在认证成功后的这段时间内不再弹出确认。`--ttl` 只能缩短这个窗口。默认值为 `0`，每次签名都要认证。窗口从认证成功起计时，连续使用不会续期；修改设置后，已在运行的会话也会按新值执行。每个会话进程独立认证。
+
+**Keylet 只做盲签。**它不解码签名内容，也不做额度、白名单、Swap 校验等交易策略，这些需要由调用方的服务实现。每次认证提示会显示 signer 名称、字节数；内容不超过 32 字节时直接显示内容本身，否则显示 SHA3-256 摘要。会话的第一次提示还会说明免确认窗口。窗口内，持有会话的进程可以签任意内容。请使用资金有限的专用 signer，并尽量缩短窗口。
+
+signer 密钥绑定本机，没有导出命令。执行 `"$keylet" signer delete <名称>` 并认证会永久删除该密钥。
 
 ## 开发与文档
 

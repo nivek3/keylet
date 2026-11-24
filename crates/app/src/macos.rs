@@ -1,4 +1,4 @@
-use crate::model::{Failure, Result, StoredWallet, WalletSummary};
+use crate::model::{Failure, Result, SignerKey, StoredWallet, WalletSummary};
 use core_foundation::{
     array::CFArray,
     base::{CFType, TCFType},
@@ -29,8 +29,10 @@ use zeroize::Zeroizing;
 type Dict = CFDictionary<CFString, CFType>;
 const SETTINGS_SERVICE: &str = "local.keylet.settings.v1";
 const WALLET_SERVICE: &str = "local.keylet.mnemonic.v1";
+// Historical name: this service now holds both Ed25519 and secp256k1 signers.
 const SIGNER_SERVICE: &str = "local.keylet.ed25519-signer.v1";
 const NODE_TTL_ACCOUNT: &str = "node-authentication-ttl";
+const SIGNER_TTL_ACCOUNT: &str = "signer-authentication-ttl";
 const ITEM_NOT_FOUND: i32 = -25300;
 const DUPLICATE_ITEM: i32 = -25299;
 #[link(name = "Security", kind = "framework")]
@@ -150,7 +152,7 @@ impl Drop for AuthContext {
     }
 }
 
-// Only the pipe-based Node helper retains this context; UI operations use fresh contexts.
+// Only the pipe-based Node helper and signer sessions retain this context; UI operations use fresh contexts.
 #[derive(Default)]
 pub struct AuthenticationSession {
     context: Option<AuthContext>,
@@ -276,9 +278,22 @@ impl Vault {
         }
     }
     pub fn authentication_ttl(&self) -> Result<u64> {
+        self.read_ttl(NODE_TTL_ACCOUNT)
+    }
+    pub fn set_authentication_ttl(&self, seconds: u64) -> Result<()> {
+        self.write_ttl(NODE_TTL_ACCOUNT, seconds)
+    }
+    /// How long a signer session may sign without asking again. Defaults to 0.
+    pub fn signer_authentication_ttl(&self) -> Result<u64> {
+        self.read_ttl(SIGNER_TTL_ACCOUNT)
+    }
+    pub fn set_signer_authentication_ttl(&self, seconds: u64) -> Result<()> {
+        self.write_ttl(SIGNER_TTL_ACCOUNT, seconds)
+    }
+    fn read_ttl(&self, account: &str) -> Result<u64> {
         // SAFETY: The query owns its attributes. A successful lookup returns a retained object.
         unsafe {
-            let mut query = self.item_query(SETTINGS_SERVICE, Some(NODE_TTL_ACCOUNT));
+            let mut query = self.item_query(SETTINGS_SERVICE, Some(account));
             query.push((symbol(kSecReturnData), CFBoolean::true_value().as_CFType()));
             query.push((
                 symbol(kSecMatchLimit),
@@ -299,8 +314,8 @@ impl Vault {
             }
         }
     }
-    pub fn set_authentication_ttl(&self, seconds: u64) -> Result<()> {
-        let mut query = self.item_query(SETTINGS_SERVICE, Some(NODE_TTL_ACCOUNT));
+    fn write_ttl(&self, account: &str, seconds: u64) -> Result<()> {
+        let mut query = self.item_query(SETTINGS_SERVICE, Some(account));
         let match_query = Dict::from_CFType_pairs(&query);
         let data = CFData::from_buffer(&seconds.to_be_bytes());
         // SAFETY: The dictionaries retain their values for the duration of each Security call.
@@ -340,13 +355,14 @@ impl Vault {
         self.insert_protected(WALLET_SERVICE, name, &format!("Keylet: {name}"), &data)
     }
 
-    pub fn insert_signer(&self, name: &str, seed: &[u8; 32]) -> Result<()> {
+    pub fn insert_signer(&self, name: &str, key: &SignerKey) -> Result<()> {
         crate::model::validate_name(name)?;
+        key.validate()?;
         self.insert_protected(
             SIGNER_SERVICE,
             name,
             &format!("Keylet signer: {name}"),
-            seed,
+            &key.encode(),
         )
     }
 
@@ -439,15 +455,14 @@ impl Vault {
         Self::decode_wallet(&Self::copy_item(&q)?)
     }
 
-    pub fn read_signer(&self, name: &str, context: &AuthContext) -> Result<Zeroizing<[u8; 32]>> {
+    pub fn read_signer(&self, name: &str, context: &AuthContext) -> Result<SignerKey> {
         let q = self.protected_data_query(SIGNER_SERVICE, name, context)?;
         Self::decode_signer(&Self::copy_item(&q)?)
     }
 
-    fn decode_signer(data: &CFType) -> Result<Zeroizing<[u8; 32]>> {
+    fn decode_signer(data: &CFType) -> Result<SignerKey> {
         let data = data.downcast::<CFData>().ok_or(Failure::Corrupt)?;
-        let bytes: &[u8; 32] = data.bytes().try_into().map_err(|_| Failure::Corrupt)?;
-        Ok(Zeroizing::new(*bytes))
+        SignerKey::decode(data.bytes())
     }
 
     fn names_query(&self, context: &AuthContext) -> Dict {

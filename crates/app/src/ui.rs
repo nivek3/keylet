@@ -84,6 +84,7 @@ struct WalletApp {
     identifier: String,
     message: String,
     authentication_minutes: String,
+    signer_authentication_minutes: String,
     clipboard: Clipboard,
     clipboard_gate: ClipboardGate,
     secure_input: SecureInput,
@@ -778,23 +779,34 @@ impl WalletApp {
                         theme::text_field(ui, &mut self.authentication_minutes, 20, 64.0);
                         ui.label(egui::RichText::new("minutes").color(theme::MUTED));
                     });
+                    theme::form_row(ui, "Reuse signer auth", |ui| {
+                        theme::text_field(ui, &mut self.signer_authentication_minutes, 20, 64.0);
+                        ui.label(egui::RichText::new("minutes").color(theme::MUTED));
+                    });
                 });
                 theme::footnote(
                     ui,
-                    "How long a Node.js process may reuse your authentication. 0 asks every time.",
+                    "How long a Node.js process or signer session may reuse your authentication. A signer session signs any payload during this time. 0 asks every time.",
                 );
                 ui.add_space(14.0);
                 let (_, save) = theme::button_bar(ui, &[], &[theme::Action::primary("Save")]);
                 if save[0] {
-                    match authentication_seconds(&self.authentication_minutes) {
-                        Ok(seconds) => match self.vault.set_authentication_ttl(seconds) {
+                    match (
+                        authentication_seconds(&self.authentication_minutes),
+                        authentication_seconds(&self.signer_authentication_minutes),
+                    ) {
+                        (Ok(node), Ok(signer)) => match self
+                            .vault
+                            .set_authentication_ttl(node)
+                            .and_then(|()| self.vault.set_signer_authentication_ttl(signer))
+                        {
                             Ok(()) => {
                                 self.message.clear();
                                 self.back();
                             }
                             Err(_) => self.message = "Unable to save settings.".into(),
                         },
-                        Err(_) => self.message = "Enter whole minutes, 0 or more.".into(),
+                        _ => self.message = "Enter whole minutes, 0 or more.".into(),
                     }
                 }
             }
@@ -1340,6 +1352,7 @@ pub fn run(
         identifier: String::new(),
         message: String::new(),
         authentication_minutes: String::new(),
+        signer_authentication_minutes: String::new(),
         clipboard: Clipboard::new(),
         clipboard_gate: gate,
         secure_input: SecureInput::new(),

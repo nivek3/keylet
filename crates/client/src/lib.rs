@@ -387,7 +387,7 @@ fn parse_response(
                 k256::ecdsa::SigningKey::from_slice(&*private).map_err(|_| BAD_RESPONSE)?;
             signing
                 .verifying_key()
-                .to_encoded_point(true)
+                .to_sec1_point(true)
                 .as_bytes()
                 .to_vec()
         }

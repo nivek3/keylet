@@ -13,6 +13,7 @@ test = false
 
 [dependencies]
 wallet-client.workspace = true
+wallet-crypto.workspace = true
 
 pyo3 = { version = "0.29", features = ["abi3-py310"] }
 serde_json.workspace = true

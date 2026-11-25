@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 pub use wallet_crypto::Curve;
-use wallet_crypto::{DeriveError, PublicKey, Seed};
+use wallet_crypto::{DeriveError, PublicKey, Seed, encode_hex};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 pub type Result<T> = std::result::Result<T, Failure>;
@@ -381,16 +381,6 @@ pub struct Derived {
     pub address: String,
 }
 
-pub fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    let mut result = String::with_capacity(2 + bytes.len() * 2);
-    result.push_str("0x");
-    for byte in bytes {
-        let _ = write!(result, "{byte:02x}");
-    }
-    result
-}
-
 pub fn normalize(text: &str) -> Zeroizing<String> {
     Zeroizing::new(text.split_whitespace().collect::<Vec<_>>().join(" "))
 }
@@ -416,10 +406,10 @@ impl WalletSeed {
             .map_err(derive_failure)?;
         let (public_key, address) = match public {
             PublicKey::Secp256k1(public) => (
-                hex(&public.compressed_bytes()),
-                hex(&public.ethereum_address()),
+                encode_hex(&public.compressed_bytes()),
+                encode_hex(&public.ethereum_address()),
             ),
-            PublicKey::Ed25519(public) => (hex(&public), bs58::encode(public).into_string()),
+            PublicKey::Ed25519(public) => (encode_hex(&public), bs58::encode(public).into_string()),
         };
         let identifier = if request.curve == Curve::Secp256k1 {
             address.clone()

@@ -86,6 +86,44 @@ impl Curve {
     }
 }
 
+/// Largest payload a local signer accepts: a full Solana transaction message.
+pub const MAX_SIGNER_PAYLOAD_BYTES: usize = 1232;
+
+/// Size of the prehashed digest a secp256k1 signer signs.
+pub const SECP256K1_DIGEST_BYTES: usize = 32;
+
+/// Encode bytes as lowercase hex with a `0x` prefix, as every Keylet protocol does.
+#[must_use]
+pub fn encode_hex(bytes: &[u8]) -> String {
+    use fmt::Write as _;
+    let mut text = String::with_capacity(2 + bytes.len() * 2);
+    text.push_str("0x");
+    for byte in bytes {
+        let _ = write!(text, "{byte:02x}");
+    }
+    text
+}
+
+/// Decode `0x`-prefixed hex in either case.
+///
+/// Returns `None` if the prefix is missing, the digit count is odd, or a digit is
+/// not hex. `"0x"` decodes to an empty vector; callers enforce their own lengths.
+#[must_use]
+pub fn decode_hex(text: &str) -> Option<Vec<u8>> {
+    let digits = text.strip_prefix("0x")?.as_bytes();
+    if !digits.len().is_multiple_of(2) {
+        return None;
+    }
+    digits
+        .chunks(2)
+        .map(|pair| {
+            let high = char::from(pair[0]).to_digit(16)?;
+            let low = char::from(pair[1]).to_digit(16)?;
+            u8::try_from(high << 4 | low).ok()
+        })
+        .collect()
+}
+
 /// Check the account name accepted by both the app and the Node bridge.
 pub fn valid_wallet_name(name: &str) -> bool {
     name.len() <= 64
@@ -269,7 +307,6 @@ pub fn secp256k1_sign_prehash(secret: &[u8; 32], digest: &[u8; 32]) -> Option<([
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fmt::Write as _;
     const WORDS: &str = "test test test test test test test test test test test junk";
     const PATH: &str = "m/44'/60'/0'/0/0";
 
@@ -400,12 +437,8 @@ mod tests {
         let words = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let mnemonic = Mnemonic::parse_in(Language::English, words).unwrap();
         let seed = Zeroizing::new(mnemonic.to_seed("TREZOR"));
-        let hex = seed.iter().fold(String::new(), |mut hex, b| {
-            let _ = write!(hex, "{b:02x}");
-            hex
-        });
         assert_eq!(
-            hex,
+            encode_hex(&seed[..]).trim_start_matches("0x"),
             "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04"
         );
         assert_eq!(
@@ -416,6 +449,19 @@ mod tests {
             *derive(WORDS, "", Curve::Secp256k1, PATH).unwrap().0,
             *derive(WORDS, " ", Curve::Secp256k1, PATH).unwrap().0
         );
+    }
+
+    #[test]
+    fn hex_round_trips_and_rejects_malformed_text() {
+        let bytes = [0x00, 0x7f, 0x80, 0xff];
+        assert_eq!(encode_hex(&bytes), "0x007f80ff");
+        assert_eq!(decode_hex("0x007f80ff"), Some(bytes.to_vec()));
+        assert_eq!(decode_hex("0x007F80FF"), Some(bytes.to_vec()));
+        assert_eq!(encode_hex(&[]), "0x");
+        assert_eq!(decode_hex("0x"), Some(Vec::new()));
+        for invalid in ["", "00", "0X00", "0x0", "0x0g", "0x 0", "0x+1"] {
+            assert_eq!(decode_hex(invalid), None, "{invalid:?}");
+        }
     }
 
     #[test]

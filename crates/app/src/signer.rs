@@ -10,13 +10,10 @@ use std::{
     os::fd::FromRawFd,
     time::{Duration, Instant},
 };
+use wallet_crypto::{MAX_SIGNER_PAYLOAD_BYTES, SECP256K1_DIGEST_BYTES, decode_hex, encode_hex};
 
-/// Largest payload: a full Solana transaction message for Ed25519.
-const MAX_PAYLOAD_BYTES: usize = 1232;
-/// secp256k1 signers sign a 32-byte prehash (Ethereum or Bitcoin sighash).
-const DIGEST_BYTES: usize = 32;
 /// A session frame `{"payload":"0x…"}` holding the largest payload.
-const MAX_FRAME_BYTES: usize = 2 * MAX_PAYLOAD_BYTES + 64;
+const MAX_FRAME_BYTES: usize = 2 * MAX_SIGNER_PAYLOAD_BYTES + 64;
 
 fn parse_curve(text: &str) -> Result<Curve> {
     match text {
@@ -56,25 +53,13 @@ fn parse_seconds(text: &str) -> Result<u64> {
     text.parse().map_err(|_| Failure::Input)
 }
 
-fn decode_hex(text: &str) -> Result<Vec<u8>> {
-    let digits = text.strip_prefix("0x").ok_or(Failure::Input)?.as_bytes();
-    if !digits.len().is_multiple_of(2) {
-        return Err(Failure::Input);
-    }
-    let value = |digit: u8| (digit as char).to_digit(16).ok_or(Failure::Input);
-    digits
-        .chunks(2)
-        .map(|pair| Ok((value(pair[0])? << 4 | value(pair[1])?) as u8))
-        .collect()
-}
-
 fn read_payload(input: impl Read) -> Result<Vec<u8>> {
     let mut payload = Vec::new();
     input
-        .take((MAX_PAYLOAD_BYTES + 1) as u64)
+        .take((MAX_SIGNER_PAYLOAD_BYTES + 1) as u64)
         .read_to_end(&mut payload)
         .map_err(|_| Failure::Transport)?;
-    if payload.is_empty() || payload.len() > MAX_PAYLOAD_BYTES {
+    if payload.is_empty() || payload.len() > MAX_SIGNER_PAYLOAD_BYTES {
         return Err(Failure::Input);
     }
     Ok(payload)
@@ -88,8 +73,8 @@ struct SessionRequest {
 
 fn parse_frame(frame: &[u8]) -> Result<Vec<u8>> {
     let request: SessionRequest = serde_json::from_slice(frame).map_err(|_| Failure::Input)?;
-    let payload = decode_hex(&request.payload)?;
-    if payload.is_empty() || payload.len() > MAX_PAYLOAD_BYTES {
+    let payload = decode_hex(&request.payload).ok_or(Failure::Input)?;
+    if payload.is_empty() || payload.len() > MAX_SIGNER_PAYLOAD_BYTES {
         return Err(Failure::Input);
     }
     Ok(payload)
@@ -104,7 +89,7 @@ fn public_info(name: &str, key: &SignerKey) -> Result<serde_json::Value> {
             serde_json::json!({
                 "name": name,
                 "curve": key.curve.name(),
-                "publicKey": model::hex(&public_key),
+                "publicKey": encode_hex(&public_key),
                 "address": bs58::encode(public_key).into_string(),
             })
         }
@@ -114,7 +99,7 @@ fn public_info(name: &str, key: &SignerKey) -> Result<serde_json::Value> {
             serde_json::json!({
                 "name": name,
                 "curve": key.curve.name(),
-                "publicKey": model::hex(&public_key),
+                "publicKey": encode_hex(&public_key),
             })
         }
     })
@@ -124,17 +109,18 @@ fn signature_response(name: &str, key: &SignerKey, payload: &[u8]) -> Result<ser
     let mut response = public_info(name, key)?;
     match key.curve {
         Curve::Ed25519 => {
-            if payload.is_empty() || payload.len() > MAX_PAYLOAD_BYTES {
+            if payload.is_empty() || payload.len() > MAX_SIGNER_PAYLOAD_BYTES {
                 return Err(Failure::Input);
             }
             let signature = SigningKey::from_bytes(&key.secret).sign(payload);
-            response["signature"] = model::hex(&signature.to_bytes()).into();
+            response["signature"] = encode_hex(&signature.to_bytes()).into();
         }
         Curve::Secp256k1 => {
-            let digest: &[u8; DIGEST_BYTES] = payload.try_into().map_err(|_| Failure::Input)?;
+            let digest: &[u8; SECP256K1_DIGEST_BYTES] =
+                payload.try_into().map_err(|_| Failure::Input)?;
             let (signature, recovery) = wallet_crypto::secp256k1_sign_prehash(&key.secret, digest)
                 .ok_or(Failure::Corrupt)?;
-            response["signature"] = model::hex(&signature).into();
+            response["signature"] = encode_hex(&signature).into();
             response["recoveryId"] = recovery.into();
         }
     }
@@ -143,10 +129,10 @@ fn signature_response(name: &str, key: &SignerKey, payload: &[u8]) -> Result<ser
 
 /// Short payloads, such as a 32-byte digest, are shown in full; longer ones by digest.
 fn describe(payload: &[u8]) -> String {
-    if payload.len() <= DIGEST_BYTES {
-        format!("Payload: {}", model::hex(payload))
+    if payload.len() <= SECP256K1_DIGEST_BYTES {
+        format!("Payload: {}", encode_hex(payload))
     } else {
-        format!("SHA3-256: {}", model::hex(&Sha3_256::digest(payload)))
+        format!("SHA3-256: {}", encode_hex(&Sha3_256::digest(payload)))
     }
 }
 
@@ -284,10 +270,10 @@ mod tests {
     fn signing_input_is_bounded_and_preserves_exact_bytes() {
         assert_eq!(read_payload(&[][..]), Err(Failure::Input));
         assert_eq!(
-            read_payload(&[0; MAX_PAYLOAD_BYTES + 1][..]),
+            read_payload(&[0; MAX_SIGNER_PAYLOAD_BYTES + 1][..]),
             Err(Failure::Input)
         );
-        let mut payload = [0; MAX_PAYLOAD_BYTES];
+        let mut payload = [0; MAX_SIGNER_PAYLOAD_BYTES];
         payload[1] = b'\n';
         payload[2] = 255;
         assert_eq!(read_payload(&payload[..]).unwrap(), payload);
@@ -376,11 +362,14 @@ mod tests {
     #[test]
     fn session_frames_carry_one_hex_payload() {
         assert_eq!(parse_frame(br#"{"payload":"0x00ff"}"#).unwrap(), [0, 255]);
-        let largest = format!(r#"{{"payload":"0x{}"}}"#, "ab".repeat(MAX_PAYLOAD_BYTES));
+        let largest = format!(
+            r#"{{"payload":"0x{}"}}"#,
+            "ab".repeat(MAX_SIGNER_PAYLOAD_BYTES)
+        );
         assert!(largest.len() <= MAX_FRAME_BYTES);
         assert_eq!(
             parse_frame(largest.as_bytes()).unwrap().len(),
-            MAX_PAYLOAD_BYTES
+            MAX_SIGNER_PAYLOAD_BYTES
         );
         for invalid in [
             &br#"{"payload":"0x"}"#[..],
@@ -394,7 +383,7 @@ mod tests {
         }
         let too_large = format!(
             r#"{{"payload":"0x{}"}}"#,
-            "ab".repeat(MAX_PAYLOAD_BYTES + 1)
+            "ab".repeat(MAX_SIGNER_PAYLOAD_BYTES + 1)
         );
         assert_eq!(parse_frame(too_large.as_bytes()), Err(Failure::Input));
     }
@@ -429,11 +418,11 @@ mod tests {
     #[test]
     fn prompts_show_short_payloads_and_the_session_window() {
         let digest = [0xab; 32];
-        assert!(sign_reason("evm", &digest).contains(&model::hex(&digest)));
+        assert!(sign_reason("evm", &digest).contains(&encode_hex(&digest)));
         assert!(sign_reason("sol", &[0; 33]).contains("SHA3-256: 0x"));
         let reason = session_reason("evm", &digest, 300);
         assert!(reason.contains("For 5 minutes"));
-        assert!(reason.contains(&model::hex(&digest)));
+        assert!(reason.contains(&encode_hex(&digest)));
         assert_eq!(duration(60), "1 minute");
         assert_eq!(duration(90), "90 seconds");
     }

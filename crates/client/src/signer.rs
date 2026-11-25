@@ -4,7 +4,7 @@
 //! the app's signer authentication window applies across calls in this
 //! process. Every response is verified against the reported public key.
 
-use super::{BAD_RESPONSE, BridgeResult, drain, helper_command, hex, nonblocking, reported_error};
+use super::{BAD_RESPONSE, BridgeResult, drain, helper_command, nonblocking, reported_error};
 use k256::ecdsa::{
     RecoveryId, Signature as EcdsaSignature, VerifyingKey, signature::hazmat::PrehashVerifier,
 };
@@ -19,12 +19,13 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use wallet_crypto::{Curve, valid_wallet_name};
+use wallet_crypto::{
+    Curve, MAX_SIGNER_PAYLOAD_BYTES, SECP256K1_DIGEST_BYTES, decode_hex, encode_hex,
+    valid_wallet_name,
+};
 
 /// Error returned when a signer request fails validation.
 pub const INVALID_SIGNER: &str = "Invalid signer request";
-/// Largest payload the app signs: a full Solana transaction message.
-const MAX_PAYLOAD_BYTES: usize = 1232;
 const TIMEOUT: Duration = Duration::from_secs(120);
 
 /// A signature returned by a local signer and verified by this client.
@@ -176,21 +177,6 @@ fn signer_name(input: &Value) -> BridgeResult<String> {
     Ok(name.to_owned())
 }
 
-fn decode_hex(text: &str) -> Option<Vec<u8>> {
-    let digits = text.strip_prefix("0x")?.as_bytes();
-    if !digits.len().is_multiple_of(2) {
-        return None;
-    }
-    digits
-        .chunks(2)
-        .map(|pair| {
-            let high = (pair[0] as char).to_digit(16)?;
-            let low = (pair[1] as char).to_digit(16)?;
-            Some((high << 4 | low) as u8)
-        })
-        .collect()
-}
-
 fn validate_sign(input: &Value) -> BridgeResult<(String, Vec<u8>, Option<u64>)> {
     check_keys(input, &["name", "payload", "authTTL"])?;
     let name = signer_name(input)?;
@@ -198,7 +184,7 @@ fn validate_sign(input: &Value) -> BridgeResult<(String, Vec<u8>, Option<u64>)> 
         .get("payload")
         .and_then(Value::as_str)
         .and_then(decode_hex)
-        .filter(|payload| (1..=MAX_PAYLOAD_BYTES).contains(&payload.len()))
+        .filter(|payload| (1..=MAX_SIGNER_PAYLOAD_BYTES).contains(&payload.len()))
         .ok_or(INVALID_SIGNER)?;
     let ttl = match input.get("authTTL") {
         None => None, // Follow the app setting.
@@ -258,7 +244,7 @@ fn sign_with(
         );
     }
     let session = sessions.get_mut(&key).ok_or("TRANSPORT_ERROR")?;
-    let frame = json!({ "payload": hex(&payload) });
+    let frame = json!({ "payload": encode_hex(&payload) });
     let result = session
         .process
         .write_line(&frame.to_string())
@@ -291,7 +277,7 @@ fn public_key_with(
     Ok(SignerPublicKey {
         name,
         curve,
-        public_key: hex(&public_key),
+        public_key: encode_hex(&public_key),
         address,
     })
 }
@@ -391,7 +377,7 @@ fn parse_signature(name: &str, payload: &[u8], line: &[u8], err: &[u8]) -> Bridg
             let key = VerifyingKey::from_sec1_bytes(&public_key).map_err(|_| BAD_RESPONSE)?;
             let ecdsa = EcdsaSignature::from_slice(&signature).map_err(|_| BAD_RESPONSE)?;
             // Bitcoin and Ethereum both require low-S signatures: normalizing must be a no-op.
-            if payload.len() != 32 || ecdsa.normalize_s() != ecdsa {
+            if payload.len() != SECP256K1_DIGEST_BYTES || ecdsa.normalize_s() != ecdsa {
                 return Err(BAD_RESPONSE);
             }
             key.verify_prehash(payload, &ecdsa)
@@ -411,8 +397,8 @@ fn parse_signature(name: &str, payload: &[u8], line: &[u8], err: &[u8]) -> Bridg
     Ok(Signature {
         name: name.to_owned(),
         curve,
-        public_key: hex(&public_key),
-        signature: hex(&signature),
+        public_key: encode_hex(&public_key),
+        signature: encode_hex(&signature),
         recovery_id,
         address,
     })
@@ -531,9 +517,9 @@ mod tests {
         json!({
             "name": name,
             "curve": "ed25519",
-            "publicKey": hex(&public),
+            "publicKey": encode_hex(&public),
             "address": bs58::encode(public).into_string(),
-            "signature": hex(&key.sign(payload).to_bytes()),
+            "signature": encode_hex(&key.sign(payload).to_bytes()),
         })
     }
 
@@ -545,8 +531,8 @@ mod tests {
         json!({
             "name": name,
             "curve": "secp256k1",
-            "publicKey": hex(key.verifying_key().to_sec1_point(true).as_bytes()),
-            "signature": hex(&signature.to_bytes()),
+            "publicKey": encode_hex(key.verifying_key().to_sec1_point(true).as_bytes()),
+            "signature": encode_hex(&signature.to_bytes()),
             "recoveryId": recovery.to_byte(),
         })
     }
@@ -565,7 +551,7 @@ mod tests {
         let mut with_ttl = valid;
         with_ttl["authTTL"] = json!(300);
         assert_eq!(validate_sign(&with_ttl).unwrap().2, Some(300));
-        let largest = format!("0x{}", "ab".repeat(MAX_PAYLOAD_BYTES));
+        let largest = format!("0x{}", "ab".repeat(MAX_SIGNER_PAYLOAD_BYTES));
         assert!(validate_sign(&json!({"name": "agent", "payload": largest})).is_ok());
         for input in [
             json!(null),
@@ -577,7 +563,7 @@ mod tests {
             json!({"name": "agent", "payload": "0x0"}),
             json!({"name": "agent", "payload": "0xzz"}),
             json!({"name": "agent", "payload": [0]}),
-            json!({"name": "agent", "payload": format!("0x{}", "ab".repeat(MAX_PAYLOAD_BYTES + 1))}),
+            json!({"name": "agent", "payload": format!("0x{}", "ab".repeat(MAX_SIGNER_PAYLOAD_BYTES + 1))}),
             json!({"name": "agent", "payload": "0x00", "authTTL": -1}),
             json!({"name": "agent", "payload": "0x00", "authTTL": 0.5}),
             json!({"name": "agent", "payload": "0x00", "authTTL": "1"}),
@@ -633,7 +619,7 @@ mod tests {
             ("address", Value::Null),
             ("recoveryId", json!(0)),
             ("curve", json!("secp256k1")),
-            ("signature", json!(hex(&[0; 64]))),
+            ("signature", json!(encode_hex(&[0; 64]))),
             ("extra", json!(true)),
         ] {
             cases.push(("sol", b"message".to_vec(), edited(&ed, key, value)));
@@ -648,8 +634,8 @@ mod tests {
             ("recoveryId", Value::Null),
             ("recoveryId", json!(flipped)),
             ("address", json!("0x00")),
-            ("publicKey", json!(hex(&[2; 33]))),
-            ("signature", json!(hex(&high_s.to_bytes()))),
+            ("publicKey", json!(encode_hex(&[2; 33]))),
+            ("signature", json!(encode_hex(&high_s.to_bytes()))),
         ] {
             cases.push(("evm", DIGEST.to_vec(), edited(&secp, key, value)));
         }
@@ -698,7 +684,7 @@ mod tests {
             "echo \"$*\" >> \"$0.starts\"\nwhile read line; do echo '{response}'; done\n"
         ));
         let sign = |ttl: u64| {
-            let input = json!({"name": "bounded", "payload": hex(&DIGEST), "authTTL": ttl});
+            let input = json!({"name": "bounded", "payload": encode_hex(&DIGEST), "authTTL": ttl});
             sign_for_test(&input, helper.clone(), || false).map(drop)
         };
         let starts = || {
@@ -739,7 +725,7 @@ mod tests {
             "echo \"$*\" >> \"$0.starts\"\nwhile read line; do\n  case \"$line\" in *0x0000*) echo CANCELLED >&2; exit 1;; esac\n  echo '{response}'\ndone\n"
         ));
         let request = |ttl: Option<u64>, payload: &[u8]| {
-            let mut input = json!({"name": "reuse", "payload": hex(payload)});
+            let mut input = json!({"name": "reuse", "payload": encode_hex(payload)});
             if let Some(ttl) = ttl {
                 input["authTTL"] = json!(ttl);
             }

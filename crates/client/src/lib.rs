@@ -13,7 +13,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use wallet_crypto::{Curve, valid_wallet_name};
+use wallet_crypto::{Curve, encode_hex, valid_wallet_name};
 use zeroize::Zeroizing;
 
 mod discovery;
@@ -52,7 +52,7 @@ impl std::fmt::Debug for KeyPair {
 impl KeyPair {
     /// Returns the public and private keys as lowercase `0x` hex strings.
     pub fn into_hex(self) -> (String, String) {
-        (self.public, hex(&*self.private))
+        (self.public, encode_hex(&*self.private))
     }
 }
 
@@ -356,16 +356,6 @@ fn reported_error(bytes: &[u8]) -> &'static str {
     .unwrap_or("HELPER_FAILED")
 }
 
-fn hex(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity(2 + bytes.len() * 2);
-    out.push_str("0x");
-    for byte in bytes {
-        use std::fmt::Write;
-        let _ = write!(out, "{byte:02x}");
-    }
-    out
-}
-
 fn parse_response(
     selection: &Selection,
     key: &[u8],
@@ -396,7 +386,7 @@ fn parse_response(
             .as_ref()
             .to_vec(),
     };
-    let public = hex(&public);
+    let public = encode_hex(&public);
     if response.get("publicKey").and_then(Value::as_str) != Some(&public) {
         return Err(BAD_RESPONSE);
     }
@@ -517,7 +507,7 @@ mod tests {
         response["curve"] = json!("secp256k1");
         assert!(parse_response(&selection, &key, response.to_string().as_bytes(), b"").is_err());
         response["curve"] = json!("ed25519");
-        response["publicKey"] = json!(hex(&[0; 32]));
+        response["publicKey"] = json!(encode_hex(&[0; 32]));
         assert!(parse_response(&selection, &key, response.to_string().as_bytes(), b"").is_err());
         assert_eq!(
             reported_error(b"untrusted exception and pretend secret"),

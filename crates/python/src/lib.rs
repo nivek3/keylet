@@ -7,7 +7,6 @@ use pyo3::{
 };
 use serde_json::{Value, json};
 use std::{
-    fmt::Write as _,
     process,
     sync::{
         Arc,
@@ -202,11 +201,7 @@ impl SignerPublicKey {
 }
 
 fn sign_input(name: &str, payload: &[u8], auth_ttl: Option<&Bound<'_, PyAny>>) -> PyResult<Value> {
-    let hex = payload.iter().fold(String::new(), |mut hex, byte| {
-        let _ = write!(hex, "{byte:02x}");
-        hex
-    });
-    let mut input = json!({ "name": name, "payload": format!("0x{hex}") });
+    let mut input = json!({ "name": name, "payload": wallet_crypto::encode_hex(payload) });
     if let Some(auth_ttl) = auth_ttl {
         input["authTTL"] = json!(
             integer(auth_ttl)

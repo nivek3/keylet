@@ -3492,6 +3492,7 @@ dependencies = [
  "pyo3",
  "serde_json",
  "wallet-client",
+ "wallet-crypto",
  "zeroize",
 ]
 

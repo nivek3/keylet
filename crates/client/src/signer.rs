@@ -390,8 +390,8 @@ fn parse_signature(name: &str, payload: &[u8], line: &[u8], err: &[u8]) -> Bridg
                 .ok_or(BAD_RESPONSE)? as u8;
             let key = VerifyingKey::from_sec1_bytes(&public_key).map_err(|_| BAD_RESPONSE)?;
             let ecdsa = EcdsaSignature::from_slice(&signature).map_err(|_| BAD_RESPONSE)?;
-            // Bitcoin and Ethereum both require low-S signatures.
-            if payload.len() != 32 || ecdsa.normalize_s().is_some() {
+            // Bitcoin and Ethereum both require low-S signatures: normalizing must be a no-op.
+            if payload.len() != 32 || ecdsa.normalize_s() != ecdsa {
                 return Err(BAD_RESPONSE);
             }
             key.verify_prehash(payload, &ecdsa)
@@ -539,12 +539,13 @@ mod tests {
 
     fn secp_response(name: &str, digest: &[u8]) -> Value {
         let key = EcdsaKey::from_slice(&[17; 32]).unwrap();
-        let (signature, recovery) = key.sign_prehash_recoverable(digest).unwrap();
-        let signature = signature.normalize_s().unwrap_or(signature);
+        // k256 signs low-S already; normalizing here keeps the fixture valid regardless.
+        let (signature, recovery) = key.sign_prehash_recoverable(digest);
+        let signature = signature.normalize_s();
         json!({
             "name": name,
             "curve": "secp256k1",
-            "publicKey": hex(key.verifying_key().to_encoded_point(true).as_bytes()),
+            "publicKey": hex(key.verifying_key().to_sec1_point(true).as_bytes()),
             "signature": hex(&signature.to_bytes()),
             "recoveryId": recovery.to_byte(),
         })

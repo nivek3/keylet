@@ -34,7 +34,7 @@ eframe = { version = "=0.33.3", default-features = false, features = [
 	"glow",
 	"accesskit",
 ] }
-k256 = { version = "=0.13.4", default-features = false, features = [
+k256 = { version = "=0.14.0", default-features = false, features = [
 	"std",
 	"ecdsa",
 ] }

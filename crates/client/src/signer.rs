@@ -28,8 +28,11 @@ const MAX_PAYLOAD_BYTES: usize = 1232;
 const TIMEOUT: Duration = Duration::from_secs(120);
 
 /// A signature returned by a local signer and verified by this client.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Signature {
+    /// The signer that produced the signature.
     pub name: String,
+    /// The signer's curve.
     pub curve: Curve,
     /// Ed25519: 32-byte key. secp256k1: 33-byte compressed key. `0x` hex.
     pub public_key: String,
@@ -42,10 +45,15 @@ pub struct Signature {
 }
 
 /// A local signer's public key, verified for its curve.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SignerPublicKey {
+    /// The signer's name.
     pub name: String,
+    /// The signer's curve.
     pub curve: Curve,
+    /// Ed25519: 32-byte key. secp256k1: 33-byte compressed key. `0x` hex.
     pub public_key: String,
+    /// Ed25519 only: the Base58 public key (Solana address).
     pub address: Option<String>,
 }
 
@@ -417,12 +425,14 @@ struct HelperProcess {
     stdout: ChildStdout,
     stderr: ChildStderr,
 }
+
 impl Drop for HelperProcess {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
     }
 }
+
 impl HelperProcess {
     fn start(helper: &Path, args: &[String], interactive: bool) -> BridgeResult<Self> {
         let mut command = helper_command(helper);
@@ -458,12 +468,14 @@ impl HelperProcess {
             }
         }
     }
+
     fn write_line(&mut self, line: &str) -> BridgeResult<()> {
         let stdin = self.stdin.as_mut().ok_or("TRANSPORT_ERROR")?;
         writeln!(stdin, "{line}")
             .and_then(|()| stdin.flush())
             .map_err(|_| "TRANSPORT_ERROR")
     }
+
     /// Reads exactly one newline-terminated response and any stderr seen so far.
     fn read_line(
         &mut self,
@@ -549,7 +561,7 @@ mod tests {
             validate_sign(&valid).unwrap(),
             ("agent".into(), vec![0, 255], None)
         );
-        let mut with_ttl = valid.clone();
+        let mut with_ttl = valid;
         with_ttl["authTTL"] = json!(300);
         assert_eq!(validate_sign(&with_ttl).unwrap().2, Some(300));
         let largest = format!("0x{}", "ab".repeat(MAX_PAYLOAD_BYTES));
@@ -679,7 +691,7 @@ mod tests {
     fn retained_sessions_are_bounded_and_idle_ones_close_after_their_ttl() {
         let _serial = SESSION_TESTS
             .lock()
-            .unwrap_or_else(|error| error.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let response = secp_response("bounded", &DIGEST);
         let (root, helper) = fixture(&format!(
             "echo \"$*\" >> \"$0.starts\"\nwhile read line; do echo '{response}'; done\n"
@@ -694,11 +706,11 @@ mod tests {
                 .lines()
                 .count()
         };
-        for ttl in 1000..1000 + MAX_SESSIONS as u64 + 1 {
+        for ttl in 1000..=(1000 + MAX_SESSIONS as u64) {
             sign(ttl).unwrap();
         }
         // The least recently used session (1000) closed to make room.
-        let expected: Vec<_> = (1001..1000 + MAX_SESSIONS as u64 + 1).map(Some).collect();
+        let expected: Vec<_> = (1001..=(1000 + MAX_SESSIONS as u64)).map(Some).collect();
         assert_eq!(helper_sessions(&helper), expected);
         assert_eq!(starts(), MAX_SESSIONS + 1);
         sign(1000 + MAX_SESSIONS as u64).unwrap();
@@ -720,7 +732,7 @@ mod tests {
     fn sessions_are_reused_per_signer_and_ttl_and_restart_after_errors() {
         let _serial = SESSION_TESTS
             .lock()
-            .unwrap_or_else(|error| error.into_inner());
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let response = secp_response("reuse", &DIGEST);
         let (root, helper) = fixture(&format!(
             "echo \"$*\" >> \"$0.starts\"\nwhile read line; do\n  case \"$line\" in *0x0000*) echo CANCELLED >&2; exit 1;; esac\n  echo '{response}'\ndone\n"

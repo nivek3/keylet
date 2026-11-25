@@ -180,6 +180,7 @@ fn session(vault: &Vault, name: &str, requested_ttl: u64) -> Result<()> {
     macos::initialize_accessory()?;
     let mut auth = AuthenticationSession::default();
     // Read unbuffered so polling the descriptor sees every byte not yet consumed.
+    // SAFETY: fd 0 is this process's stdin and nothing else here reads it; ManuallyDrop keeps the File from closing it.
     let mut input = std::mem::ManuallyDrop::new(unsafe { std::fs::File::from_raw_fd(0) });
     while let Some(frame) = crate::read_frame(&mut *input, &mut auth, Some(0), MAX_FRAME_BYTES)? {
         let payload = parse_frame(&frame)?;
@@ -387,7 +388,7 @@ mod tests {
             br#"{"payload":"0x0ff"}"#,
             br#"{"payload":"0xzz"}"#,
             br#"{"payload":"0x00","extra":1}"#,
-            br#"{}"#,
+            br"{}",
         ] {
             assert_eq!(parse_frame(invalid), Err(Failure::Input));
         }
@@ -400,7 +401,11 @@ mod tests {
 
     #[test]
     fn options_reject_unknown_repeated_and_dangling_keys() {
-        let args = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let args = |list: &[&str]| {
+            list.iter()
+                .map(std::string::ToString::to_string)
+                .collect::<Vec<_>>()
+        };
         let given = args(&["--curve", "secp256k1"]);
         let options = parse_options(&given, &["curve"]).unwrap();
         assert_eq!(option(&options, "curve"), Some("secp256k1"));

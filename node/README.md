@@ -125,10 +125,10 @@ pnpm --dir node test
 
 `build` targets the current Mac architecture. The build script lives at `scripts/build-bridge.sh` in the repository root. pnpm manages development dependencies; npm publishes the package. Consumers can use their own package manager.
 
-Before publishing, install both Rust targets and pack from `node/`:
+Before publishing, install the pinned toolchain with both Rust targets (from `rust-toolchain.toml`) and pack from `node/`:
 
 ```sh
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
+rustup toolchain install
 cd node
 npm pack
 ```

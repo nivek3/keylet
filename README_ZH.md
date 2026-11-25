@@ -42,7 +42,7 @@ https://github.com/user-attachments/assets/3554d122-92ed-412b-bce7-057f6dcdcdff
 
 ## 从源码开始
 
-- **构建环境：** macOS 14+、Rust、Apple 命令行开发工具、Python 3、Node.js 22+，以及 [`node/package.json`](node/package.json) 指定版本的 pnpm。
+- **构建环境：** macOS 14+、通过 rustup 安装的 Rust（版本固定在 [`rust-toolchain.toml`](rust-toolchain.toml)，会自动安装）、Apple 命令行开发工具、Python 3、Node.js 22+，以及 [`node/package.json`](node/package.json) 指定版本的 pnpm。
 - **App 签名：** 需要签名证书，以及授权 bundle ID 和私有 Keychain 访问组的 provisioning profile。本地开发可按[免费 Personal Team 配置说明](docs/signing.md#personal-team)准备。Developer ID 签名和公证需要发布方加入付费 Apple Developer Program；未来安装正式签名版本的用户无需自己的开发者账号。
 
 npm 包不包含 macOS App。使用 SDK 前，需要分别构建 App 和 SDK。

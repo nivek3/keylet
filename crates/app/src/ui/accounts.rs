@@ -20,6 +20,7 @@ pub(super) struct AccountView {
     copied: Option<String>,
     message: String,
 }
+
 impl Default for AccountView {
     fn default() -> Self {
         Self {
@@ -42,6 +43,7 @@ impl Default for AccountView {
         }
     }
 }
+
 impl AccountView {
     pub(super) fn select_wallet(&mut self, name: &str) {
         if self.wallet != name {
@@ -51,6 +53,7 @@ impl AccountView {
             };
         }
     }
+
     /// Adopts the wallet's current display cache. An address derived earlier belongs to
     /// the previous cache, so it is dropped when the cache changes (e.g. after Sync from
     /// Keychain); a fresh derivation is remembered in the new cache and still shows.
@@ -60,6 +63,7 @@ impl AccountView {
             self.address = None;
         }
     }
+
     /// The address for the current inputs without reading the key: the one derived
     /// after authentication, or a cached address for the first account indices.
     fn known_address(&self) -> Option<String> {
@@ -79,7 +83,7 @@ impl AccountView {
                 return Err(Failure::Input);
             }
             let index = self.index.parse::<u32>().map_err(|_| Failure::Input)?;
-            if index >= 0x80000000 {
+            if index >= 0x8000_0000 {
                 return Err(Failure::Input);
             }
             crate::model::account_path(self.curve, index)
@@ -197,17 +201,16 @@ impl AccountView {
         if let Some(address) = known {
             return Some(AddressAction::Copy(address));
         }
-        match self.request() {
-            Ok(request) => Some(AddressAction::Derive(request)),
-            Err(_) => {
-                self.message = if self.full_path {
-                    "Enter a valid derivation path. Solana requires every component to be hardened."
-                } else {
-                    "Enter a whole-number index from 0 to 2147483647."
-                }
-                .into();
-                None
+        if let Ok(request) = self.request() {
+            Some(AddressAction::Derive(request))
+        } else {
+            self.message = if self.full_path {
+                "Enter a valid derivation path. Solana requires every component to be hardened."
+            } else {
+                "Enter a whole-number index from 0 to 2147483647."
             }
+            .into();
+            None
         }
     }
 }
@@ -281,7 +284,7 @@ impl WalletApp {
                     }
                     Err(error) => {
                         self.account_view.message =
-                            format!("Address not copied ({}).", error.code())
+                            format!("Address not copied ({}).", error.code());
                     }
                 }
             }
@@ -534,7 +537,7 @@ mod tests {
         assert_eq!(view.request().unwrap().name, "second");
         assert_eq!(view.index, "0");
         assert!(view.address.is_none());
-        assert!(view.message.is_empty());
+        assert_eq!(view.message, "");
     }
 
     #[test]

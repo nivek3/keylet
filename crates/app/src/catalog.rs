@@ -41,6 +41,7 @@ impl Catalog {
                 .join("wallets.json"),
         })
     }
+
     fn validate(mut names: Vec<WalletSummary>) -> Result<Vec<WalletSummary>> {
         if names.len() > 10000 {
             return Err(Failure::Catalog);
@@ -52,6 +53,7 @@ impl Catalog {
         names.dedup_by(|a, b| a.name == b.name);
         Ok(names)
     }
+
     pub fn load(&self) -> Result<Vec<WalletSummary>> {
         let file = match OpenOptions::new()
             .read(true)
@@ -89,11 +91,13 @@ impl Catalog {
             .custom_flags(libc::O_NOFOLLOW)
             .open(parent.join("wallets.lock"))
             .map_err(|_| Failure::Catalog)?;
+        // SAFETY: `lock` is an open file, so its descriptor is valid for this call.
         if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX) } != 0 {
             return Err(Failure::Catalog);
         }
         Ok(lock)
     }
+
     fn write(&self, names: Vec<WalletSummary>) -> Result<Vec<WalletSummary>> {
         let names = Self::validate(names)?;
         let bytes = serde_json::to_vec(&names).map_err(|_| Failure::Catalog)?;
@@ -103,6 +107,7 @@ impl Catalog {
         self.write_bytes(&bytes)?;
         Ok(names)
     }
+
     fn write_bytes(&self, bytes: &[u8]) -> Result<()> {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -127,6 +132,7 @@ impl Catalog {
         }
         result
     }
+
     pub fn upsert(&self, entry: WalletSummary) -> Result<()> {
         entry.validate()?;
         let _lock = self.lock()?;
@@ -135,6 +141,7 @@ impl Catalog {
         names.push(entry);
         self.write(names).map(|_| ())
     }
+
     pub fn remove(&self, name: &str) -> Result<()> {
         validate_name(name).map_err(|_| Failure::Catalog)?;
         let _lock = self.lock()?;
@@ -142,6 +149,7 @@ impl Catalog {
         names.retain(|n| n.name != name);
         self.write(names).map(|_| ())
     }
+
     pub fn sync(
         &self,
         authenticated_entries: impl FnOnce() -> Result<Vec<WalletSummary>>,
@@ -196,9 +204,11 @@ mod tests {
         assert_eq!(names(catalog.load().unwrap()), ["new-wallet"]);
         fs::remove_dir_all(catalog.path.parent().unwrap()).unwrap();
     }
+
     fn names(entries: Vec<WalletSummary>) -> Vec<String> {
         entries.into_iter().map(|e| e.name).collect()
     }
+
     fn fixture() -> Catalog {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -214,10 +224,11 @@ mod tests {
                 .join("wallets.json"),
         }
     }
+
     #[test]
     fn public_metadata_persistence_sync_and_failure_do_not_touch_keys() {
         let c = fixture();
-        assert!(c.load().unwrap().is_empty());
+        assert_eq!(c.load().unwrap(), []);
         c.upsert(WalletSummary::named("second".into())).unwrap();
         c.upsert(WalletSummary::named("first".into())).unwrap();
         c.upsert(WalletSummary::named("first".into())).unwrap();
@@ -255,6 +266,7 @@ mod tests {
         assert_eq!(names(c.load().unwrap()), ["restored"]);
         fs::remove_dir_all(c.path.parent().unwrap()).unwrap();
     }
+
     #[test]
     fn concurrent_updates_and_untrusted_files() {
         let c = fixture();
@@ -263,7 +275,7 @@ mod tests {
                 let c = &c;
                 scope.spawn(move || {
                     c.upsert(WalletSummary::named(format!("wallet-{i}")))
-                        .unwrap()
+                        .unwrap();
                 });
             }
         });
@@ -278,6 +290,7 @@ mod tests {
         assert!(Catalog::for_group("../bad").is_err());
         fs::remove_dir_all(c.path.parent().unwrap()).unwrap();
     }
+
     #[test]
     fn public_addresses_persist_without_secret_fields() {
         let c = fixture();

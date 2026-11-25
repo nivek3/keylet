@@ -14,8 +14,10 @@ use zeroize::Zeroizing;
 /// The two curves supported by the app and the Node bridge.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Curve {
+    /// BIP-32 secp256k1, used by Ethereum and Bitcoin.
     #[serde(rename = "secp256k1")]
     Secp256k1,
+    /// SLIP-0010 Ed25519 with hardened paths only, used by Solana.
     #[serde(rename = "ed25519")]
     Ed25519,
 }
@@ -41,7 +43,7 @@ impl Curve {
         let number = |text: &str| {
             !text.is_empty()
                 && text.bytes().all(|byte| byte.is_ascii_digit())
-                && text.parse::<u32>().is_ok_and(|index| index < 0x80000000)
+                && text.parse::<u32>().is_ok_and(|index| index < 0x8000_0000)
         };
         let hardened = |text: &str| text.strip_suffix('\'').is_some_and(number);
         match self {
@@ -72,7 +74,7 @@ impl Curve {
         let index = |text: &str| {
             !text.is_empty()
                 && text.bytes().all(|byte| byte.is_ascii_digit())
-                && text.parse::<u32>().is_ok_and(|index| index < 0x80000000)
+                && text.parse::<u32>().is_ok_and(|index| index < 0x8000_0000)
         };
         let parts: Vec<_> = path.split('/').collect();
         let hardened = |part: &&str| part.strip_suffix('\'').is_some_and(index);
@@ -99,8 +101,11 @@ pub fn valid_wallet_name(name: &str) -> bool {
 /// A derivation failure without secret-bearing context.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeriveError {
+    /// The phrase is not a valid English BIP-39 mnemonic (words or checksum).
     InvalidMnemonic,
+    /// The derivation path does not parse for the selected curve.
     InvalidPath,
+    /// The backend rejected a derivation step.
     DerivationFailed,
 }
 
@@ -119,7 +124,9 @@ impl std::error::Error for DeriveError {}
 /// A public key in the format appropriate to its curve.
 #[derive(Debug)]
 pub enum PublicKey {
+    /// A validated secp256k1 key.
     Secp256k1(EvmPublicKey),
+    /// A 32-byte Ed25519 public key.
     Ed25519([u8; 32]),
 }
 
@@ -178,6 +185,13 @@ fn derive_seed(
 /// A BIP-39 seed, computed once so several paths can be derived from one wallet
 /// without repeating the PBKDF2 stretch. Zeroized on drop.
 pub struct Seed(Zeroizing<[u8; 64]>);
+
+impl fmt::Debug for Seed {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Never print the seed bytes.
+        formatter.debug_struct("Seed").finish_non_exhaustive()
+    }
+}
 
 impl Seed {
     /// Compute the seed for a mnemonic and passphrase.
@@ -255,6 +269,7 @@ pub fn secp256k1_sign_prehash(secret: &[u8; 32], digest: &[u8; 32]) -> Option<([
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fmt::Write as _;
     const WORDS: &str = "test test test test test test test test test test test junk";
     const PATH: &str = "m/44'/60'/0'/0/0";
 
@@ -385,7 +400,10 @@ mod tests {
         let words = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
         let mnemonic = Mnemonic::parse_in(Language::English, words).unwrap();
         let seed = Zeroizing::new(mnemonic.to_seed("TREZOR"));
-        let hex: String = seed.iter().map(|b| format!("{b:02x}")).collect();
+        let hex = seed.iter().fold(String::new(), |mut hex, b| {
+            let _ = write!(hex, "{b:02x}");
+            hex
+        });
         assert_eq!(
             hex,
             "c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04"

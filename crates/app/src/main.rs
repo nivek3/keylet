@@ -1,3 +1,4 @@
+//! Keylet: the macOS wallet app and its `keylet` command-line helper.
 mod catalog;
 mod macos;
 mod model;
@@ -17,15 +18,18 @@ fn emit(value: &serde_json::Value) -> Result<()> {
     stdout.write_all(b"\n").map_err(|_| Failure::Transport)?;
     stdout.flush().map_err(|_| Failure::Transport)
 }
+
 fn pipe_descriptor(fd: i32) -> bool {
+    // SAFETY: `stat` is a zeroed plain C struct that fstat fills in; an invalid descriptor makes fstat fail, which is checked.
     unsafe {
         let mut stat = std::mem::zeroed::<libc::stat>();
-        if libc::fstat(fd, &mut stat) != 0 {
+        if libc::fstat(fd, &raw mut stat) != 0 {
             return false;
         }
         matches!(stat.st_mode & libc::S_IFMT, libc::S_IFIFO | libc::S_IFSOCK)
     }
 }
+
 /// Read one newline-terminated frame. While waiting on `fd`, an idle session expires on time.
 fn read_frame(
     input: &mut impl Read,
@@ -41,14 +45,14 @@ fn read_frame(
                 session.expire(now);
                 let timeout = session
                     .remaining(now)
-                    .map(|time| time.as_millis().min(i32::MAX as u128) as i32)
-                    .unwrap_or(-1);
+                    .map_or(-1, |time| time.as_millis().min(i32::MAX as u128) as i32);
                 let mut poll = libc::pollfd {
                     fd,
                     events: libc::POLLIN,
                     revents: 0,
                 };
-                let ready = unsafe { libc::poll(&mut poll, 1, timeout) };
+                // SAFETY: `poll` points to one initialized pollfd for the duration of the call.
+                let ready = unsafe { libc::poll(&raw mut poll, 1, timeout) };
                 if ready > 0 {
                     break;
                 }
@@ -78,6 +82,7 @@ fn read_frame(
     }
     Ok(Some(data))
 }
+
 fn read_request(
     input: &mut impl Read,
     session: &mut macos::AuthenticationSession,
@@ -90,13 +95,16 @@ fn read_request(
     request.validate()?;
     Ok(Some(request))
 }
+
 fn bridge(vault: &macos::Vault, requested_ttl: u64) -> Result<()> {
     if !pipe_descriptor(0) || !pipe_descriptor(3) {
         return Err(Failure::Transport);
     }
     macos::initialize_accessory()?;
     let mut session = macos::AuthenticationSession::default();
+    // SAFETY: fd 0 was checked to be a pipe or socket, and nothing else in this process owns it.
     let mut input = unsafe { std::fs::File::from_raw_fd(0) };
+    // SAFETY: the client passes its private key pipe as fd 3, checked above; only this File owns it.
     let mut secret_pipe = unsafe { std::fs::File::from_raw_fd(3) };
     while let Some(request) = read_request(&mut input, &mut session, Some(0))? {
         objc2::rc::autoreleasepool(|_| -> Result<()> {
@@ -127,13 +135,15 @@ fn bridge(vault: &macos::Vault, requested_ttl: u64) -> Result<()> {
     }
     Ok(())
 }
+
 fn main_impl() -> Result<()> {
+    // SAFETY: `limit` is a valid rlimit for the call, and ignoring SIGPIPE installs no handler code.
     unsafe {
         let limit = libc::rlimit {
             rlim_cur: 0,
             rlim_max: 0,
         };
-        if libc::setrlimit(libc::RLIMIT_CORE, &limit) != 0 {
+        if libc::setrlimit(libc::RLIMIT_CORE, &raw const limit) != 0 {
             return Err(Failure::Configuration);
         }
         libc::signal(libc::SIGPIPE, libc::SIG_IGN);
@@ -194,6 +204,7 @@ fn main_impl() -> Result<()> {
     let pair = model::derive(&wallet, &request, Some(&args[3]))?;
     emit(&serde_json::json!({"name":request.name,"path":request.path,"address":pair.identifier}))
 }
+
 fn main() {
     // Suppress panic payloads and backtraces, which may contain secret-bearing inputs.
     std::panic::set_hook(Box::new(|_| eprintln!("INVALID_INPUT")));
@@ -238,6 +249,7 @@ mod tests {
             assert!(read_request(&mut invalid, &mut session, None).is_err());
         }
     }
+
     #[test]
     fn idle_bridge_expires_authentication_and_reads_multiple_frames() {
         use std::{
@@ -281,11 +293,12 @@ mod tests {
         );
         sender.join().unwrap();
     }
+
     #[test]
     fn secret_transport_rejects_regular_files() {
+        use std::os::fd::AsRawFd;
         let exe = std::env::current_exe().unwrap();
         let file = std::fs::File::open(exe).unwrap();
-        use std::os::fd::AsRawFd;
         assert!(!pipe_descriptor(file.as_raw_fd()));
         let (a, _b) = std::os::unix::net::UnixStream::pair().unwrap();
         assert!(pipe_descriptor(a.as_raw_fd()));

@@ -1,0 +1,62 @@
+# Workspace lints, adapted from BeautifulRust (https://github.com/morganlinton/BeautifulRust).
+#
+# CI runs `cargo clippy --workspace --all-targets --locked -- -D warnings`.
+# Silence a lint on the narrowest item with `#[expect(lint, reason = "...")]`.
+#
+# Order matters: groups come first and later flags override them. A RUSTFLAGS
+# environment variable replaces this whole list.
+[build]
+rustflags = [
+  # rustc
+  "-Wrust_2018_idioms",
+  "-Wunsafe_op_in_unsafe_fn",
+  "-Wmissing_debug_implementations",
+  "-Wmissing_docs",
+
+  # clippy groups
+  "-Wclippy::all",
+  "-Wclippy::pedantic",
+
+  # Panics: return errors, and give every intentional panic a reason.
+  "-Wclippy::unwrap_used",
+  "-Wclippy::panic_in_result_fn",
+  "-Wclippy::missing_assert_message",
+
+  # Suppressions must explain themselves and expire when no longer needed.
+  "-Wclippy::allow_attributes",
+  "-Wclippy::allow_attributes_without_reason",
+
+  # Unsafe must be justified.
+  "-Wclippy::undocumented_unsafe_blocks",
+
+  # API shape and idioms.
+  "-Wclippy::clone_on_ref_ptr",
+  "-Wclippy::redundant_clone",
+  "-Wclippy::rc_buffer",
+  "-Wclippy::string_add",
+  "-Wclippy::wildcard_imports",
+  "-Wclippy::dbg_macro",
+  "-Wclippy::todo",
+
+  # Noise for this codebase.
+  "-Aclippy::module_name_repetitions",
+  "-Aclippy::must_use_candidate",
+  "-Aclippy::module_inception",
+  "-Aclippy::enum_glob_use",
+  # Shared crates are internal (publish = false); their enums are matched
+  # exhaustively across the workspace on purpose.
+  "-Aclippy::exhaustive_enums",
+
+  # Deferred until the code is migrated.
+  # Lossy casts: mostly UI geometry and FFI integer widths.
+  "-Aclippy::as_conversions",
+  "-Aclippy::cast_possible_truncation",
+  "-Aclippy::cast_sign_loss",
+  "-Aclippy::cast_precision_loss",
+  # One unsafe operation per block: FFI code groups related calls under one SAFETY note.
+  "-Aclippy::multiple_unsafe_ops_per_block",
+  # UI structure: egui pages pass focus flags and keep large layout functions.
+  "-Aclippy::fn_params_excessive_bools",
+  "-Aclippy::struct_excessive_bools",
+  "-Aclippy::too_many_lines",
+]

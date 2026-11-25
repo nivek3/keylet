@@ -23,6 +23,7 @@ pub enum Failure {
     CatalogChanged,
     Settings,
 }
+
 impl Failure {
     pub fn code(self) -> &'static str {
         match self {
@@ -44,6 +45,7 @@ impl Failure {
             Self::Settings => "SETTINGS_ERROR",
         }
     }
+
     pub fn message(self) -> &'static str {
         match self {
             Self::Settings => {
@@ -72,6 +74,7 @@ pub struct KeyRequest {
     pub path: String,
     pub curve: Curve,
 }
+
 impl KeyRequest {
     pub fn validate(&self) -> Result<()> {
         validate_name(&self.name)?;
@@ -81,6 +84,7 @@ impl KeyRequest {
             Err(Failure::Input)
         }
     }
+
     pub fn validate_identifier(&self, expected: &str) -> Result<()> {
         self.validate()?;
         let len = if self.curve == Curve::Secp256k1 {
@@ -97,11 +101,12 @@ impl KeyRequest {
         Ok(())
     }
 }
+
 pub fn validate_name(name: &str) -> Result<()> {
-    if !wallet_crypto::valid_wallet_name(name) {
-        Err(Failure::Input)
-    } else {
+    if wallet_crypto::valid_wallet_name(name) {
         Ok(())
+    } else {
+        Err(Failure::Input)
     }
 }
 
@@ -110,6 +115,7 @@ pub struct DeletePlan {
     pub deleted: usize,
     pub confirmed: bool,
 }
+
 impl DeletePlan {
     pub fn new(mut names: Vec<String>) -> Result<Self> {
         if names.is_empty() {
@@ -126,6 +132,7 @@ impl DeletePlan {
             confirmed: false,
         })
     }
+
     pub fn execute(&mut self, mut delete: impl FnMut(&str) -> Result<()>) -> Result<()> {
         if !self.confirmed || self.remaining.is_empty() {
             return Err(Failure::Input);
@@ -190,6 +197,7 @@ pub struct WalletSummary {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub saved_accounts: Vec<SavedAccount>,
 }
+
 impl WalletSummary {
     #[cfg(test)]
     pub fn named(name: String) -> Self {
@@ -202,6 +210,7 @@ impl WalletSummary {
             saved_accounts: Vec::new(),
         }
     }
+
     /// Rebuilds the display cache from a Keychain read. `remembered` paths are
     /// re-derived from the wallet, never copied, so a stale or tampered catalog entry
     /// cannot survive a read; paths that no longer validate are dropped.
@@ -212,6 +221,7 @@ impl WalletSummary {
     ) -> Result<Self> {
         Self::from_seed(name, &WalletSeed::new(wallet)?, remembered)
     }
+
     /// As `from_wallet`, reusing a seed already computed for this wallet.
     pub fn from_seed(name: &str, seed: &WalletSeed, remembered: &[SavedAccount]) -> Result<Self> {
         let derive = |curve, path: String| {
@@ -246,6 +256,7 @@ impl WalletSummary {
         }
         Ok(summary)
     }
+
     /// Remembers an authenticated derivation so its address shows without a key read
     /// next time. The oldest entry is dropped beyond `MAX_SAVED_ACCOUNTS`.
     pub fn remember(&mut self, curve: Curve, path: &str, address: &str) {
@@ -261,6 +272,7 @@ impl WalletSummary {
             self.saved_accounts.remove(0);
         }
     }
+
     /// The cached address for a standard account path, if that index is cached.
     pub fn cached_account(&self, curve: Curve, path: &str) -> Option<&str> {
         let accounts = match curve {
@@ -283,6 +295,7 @@ impl WalletSummary {
                     .map(|saved| saved.address.as_str())
             })
     }
+
     pub fn validate(&self) -> Result<()> {
         validate_name(&self.name).map_err(|_| Failure::Catalog)?;
         let ethereum = |eth: &String| {
@@ -348,6 +361,7 @@ impl WalletSummary {
             _ => Err(Failure::Catalog),
         }
     }
+
     pub fn matches(&self, query: &str) -> bool {
         let query = query.trim().to_ascii_lowercase();
         [
@@ -359,12 +373,14 @@ impl WalletSummary {
         .any(|value| value.to_ascii_lowercase().contains(&query))
     }
 }
+
 pub struct Derived {
     pub key: Zeroizing<[u8; 32]>,
     pub public_key: String,
     pub identifier: String,
     pub address: String,
 }
+
 pub fn hex(bytes: &[u8]) -> String {
     use std::fmt::Write;
     let mut result = String::with_capacity(2 + bytes.len() * 2);
@@ -374,9 +390,11 @@ pub fn hex(bytes: &[u8]) -> String {
     }
     result
 }
+
 pub fn normalize(text: &str) -> Zeroizing<String> {
     Zeroizing::new(text.split_whitespace().collect::<Vec<_>>().join(" "))
 }
+
 /// A stored wallet's BIP-39 seed, computed once for several derivations.
 pub struct WalletSeed(Seed);
 impl WalletSeed {
@@ -386,6 +404,7 @@ impl WalletSeed {
             .map(Self)
             .map_err(derive_failure)
     }
+
     pub fn derive(&self, request: &KeyRequest, expected: Option<&str>) -> Result<Derived> {
         request.validate()?;
         if let Some(expected) = expected {
@@ -422,6 +441,7 @@ impl WalletSeed {
         })
     }
 }
+
 fn check_wallet(wallet: &StoredWallet) -> Result<()> {
     if wallet.version != 1 {
         return Err(Failure::Corrupt);
@@ -432,6 +452,7 @@ fn check_wallet(wallet: &StoredWallet) -> Result<()> {
     }
     Ok(())
 }
+
 fn derive_failure(error: DeriveError) -> Failure {
     match error {
         DeriveError::InvalidMnemonic => Failure::Mnemonic,
@@ -444,6 +465,7 @@ pub struct SignerKey {
     pub curve: Curve,
     pub secret: Zeroizing<[u8; 32]>,
 }
+
 impl SignerKey {
     // Keychain encoding: one curve tag byte followed by the 32-byte secret.
     const ED25519_TAG: u8 = 0;
@@ -457,6 +479,7 @@ impl SignerKey {
         data.extend_from_slice(&*self.secret);
         data
     }
+
     pub fn decode(data: &[u8]) -> Result<Self> {
         let (&tag, secret) = data.split_first().ok_or(Failure::Corrupt)?;
         let curve = match tag {
@@ -471,6 +494,7 @@ impl SignerKey {
         key.validate()?;
         Ok(key)
     }
+
     pub fn validate(&self) -> Result<()> {
         if self.curve == Curve::Secp256k1
             && wallet_crypto::secp256k1_public_key(&self.secret).is_none()
@@ -491,6 +515,7 @@ pub fn derive_signer(wallet: &StoredWallet, curve: Curve, path: &str) -> Result<
         .map_err(derive_failure)?;
     Ok(SignerKey { curve, secret })
 }
+
 pub fn derive(
     wallet: &StoredWallet,
     request: &KeyRequest,
@@ -504,6 +529,7 @@ pub fn derive(
     }
     WalletSeed::new(wallet)?.derive(request, expected)
 }
+
 pub fn check_passphrase(passphrase: &str, confirmation: &str, empty: bool) -> Result<()> {
     if passphrase.len() > 4096 || confirmation.len() > 4096 {
         return Err(Failure::Input);
@@ -524,6 +550,7 @@ pub struct PendingWallet {
     wallet: StoredWallet,
     ready_to_save: bool,
 }
+
 impl PendingWallet {
     pub fn new(wallet: StoredWallet, creating: bool) -> Self {
         Self {
@@ -531,9 +558,11 @@ impl PendingWallet {
             ready_to_save: !creating,
         }
     }
+
     pub fn phrase(&self) -> &str {
         &self.wallet.mnemonic
     }
+
     pub fn confirm(&mut self, phrase: &str) -> Result<()> {
         self.ready_to_save = *normalize(phrase) == self.wallet.mnemonic;
         if self.ready_to_save {
@@ -542,9 +571,11 @@ impl PendingWallet {
             Err(Failure::Input)
         }
     }
+
     pub fn skip_backup(&mut self) {
         self.ready_to_save = true;
     }
+
     pub fn for_save(&self) -> Result<&StoredWallet> {
         if self.ready_to_save {
             Ok(&self.wallet)
@@ -565,6 +596,7 @@ mod tests {
             passphrase: passphrase.into(),
         }
     }
+
     #[test]
     fn deletion_requires_confirmation_and_stops_at_first_failure() {
         assert!(DeletePlan::new(vec![]).is_err());
@@ -604,7 +636,7 @@ mod tests {
         .unwrap();
         assert_eq!(called, ["a", "b", "b", "c"]);
         assert_eq!(plan.deleted, 3);
-        assert!(plan.remaining.is_empty());
+        assert_eq!(plan.remaining, Vec::<String>::new());
         let mut cancelled = DeletePlan::new(vec!["kept".into()]).unwrap();
         cancelled.confirmed = true;
         assert_eq!(
@@ -614,6 +646,7 @@ mod tests {
         assert_eq!(cancelled.remaining, ["kept"]);
         assert_eq!(cancelled.deleted, 0);
     }
+
     fn request(curve: Curve, path: &str) -> KeyRequest {
         KeyRequest {
             name: "public-test".into(),
@@ -621,6 +654,7 @@ mod tests {
             path: path.into(),
         }
     }
+
     #[test]
     fn path_name_and_public_identifier_boundaries() {
         for name in ["", "x\n", "-x", "钱包", &"x".repeat(65)] {
@@ -658,6 +692,7 @@ mod tests {
                 .is_err()
         );
     }
+
     #[test]
     fn remembered_accounts_are_rederived_not_copied() {
         let stored: StoredWallet = serde_json::from_str(&format!(
@@ -707,6 +742,7 @@ mod tests {
         );
         assert!(summary.validate().is_ok());
     }
+
     #[test]
     fn stored_wallet_and_independent_public_vectors() {
         let stored: StoredWallet = serde_json::from_str(&format!(
@@ -888,6 +924,7 @@ mod tests {
             Err(Failure::Address)
         ));
     }
+
     #[test]
     fn backup_gate_and_explicit_passphrase() {
         assert!(check_passphrase("", "", false).is_err());

@@ -125,10 +125,10 @@ pnpm --dir node test
 
 `build` 构建当前 Mac 架构。构建脚本位于根目录 `scripts/build-bridge.sh`；pnpm 管理开发依赖，npm 负责发布，业务项目可使用自己的包管理器。
 
-发布前安装两个 Rust 目标，然后在 `node/` 打包：
+发布前按 `rust-toolchain.toml` 安装固定版本的工具链和两个 Rust 目标，然后在 `node/` 打包：
 
 ```sh
-rustup target add aarch64-apple-darwin x86_64-apple-darwin
+rustup toolchain install
 cd node
 npm pack
 ```

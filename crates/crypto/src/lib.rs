@@ -11,6 +11,9 @@ use solana_ed25519::ed_sigs::ExtendedSigningKey;
 use std::fmt;
 use zeroize::Zeroizing;
 
+pub mod error;
+pub use error::DeriveError;
+
 /// The two curves supported by the app and the Node bridge.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum Curve {
@@ -96,11 +99,8 @@ pub const SECP256K1_DIGEST_BYTES: usize = 32;
 #[must_use]
 pub fn encode_hex(bytes: &[u8]) -> String {
     use fmt::Write as _;
-    let mut text = String::with_capacity(2 + bytes.len() * 2);
-    text.push_str("0x");
-    for byte in bytes {
-        let _ = write!(text, "{byte:02x}");
-    }
+    let mut text = String::with_capacity(2 + base16ct::encoded_len(bytes));
+    let _ = write!(text, "0x{:x}", base16ct::HexDisplay(bytes));
     text
 }
 
@@ -110,18 +110,7 @@ pub fn encode_hex(bytes: &[u8]) -> String {
 /// not hex. `"0x"` decodes to an empty vector; callers enforce their own lengths.
 #[must_use]
 pub fn decode_hex(text: &str) -> Option<Vec<u8>> {
-    let digits = text.strip_prefix("0x")?.as_bytes();
-    if !digits.len().is_multiple_of(2) {
-        return None;
-    }
-    digits
-        .chunks(2)
-        .map(|pair| {
-            let high = char::from(pair[0]).to_digit(16)?;
-            let low = char::from(pair[1]).to_digit(16)?;
-            u8::try_from(high << 4 | low).ok()
-        })
-        .collect()
+    base16ct::mixed::decode_vec(text.strip_prefix("0x")?).ok()
 }
 
 /// Check the account name accepted by both the app and the Node bridge.
@@ -135,29 +124,6 @@ pub fn valid_wallet_name(name: &str) -> bool {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || b"._-".contains(&byte))
 }
-
-/// A derivation failure without secret-bearing context.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DeriveError {
-    /// The phrase is not a valid English BIP-39 mnemonic (words or checksum).
-    InvalidMnemonic,
-    /// The derivation path does not parse for the selected curve.
-    InvalidPath,
-    /// The backend rejected a derivation step.
-    DerivationFailed,
-}
-
-impl fmt::Display for DeriveError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::InvalidMnemonic => "invalid mnemonic",
-            Self::InvalidPath => "invalid derivation path",
-            Self::DerivationFailed => "key derivation failed",
-        })
-    }
-}
-
-impl std::error::Error for DeriveError {}
 
 /// A public key in the format appropriate to its curve.
 #[derive(Debug)]
@@ -311,10 +277,7 @@ mod tests {
     const PATH: &str = "m/44'/60'/0'/0/0";
 
     fn bytes(hex: &str) -> Vec<u8> {
-        (0..hex.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-            .collect()
+        base16ct::mixed::decode_vec(hex).unwrap()
     }
 
     #[test]

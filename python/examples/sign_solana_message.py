@@ -8,25 +8,18 @@ attach the returned signature for `signed.address`. The private key stays in the
 
 import sys
 
+from base58 import b58encode
 from keylet import sign_with_signer
-
-ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
-
-
-def base58(data: bytes) -> str:
-    number, text = int.from_bytes(data, "big"), ""
-    while number:
-        number, digit = divmod(number, 58)
-        text = ALPHABET[digit] + text
-    return "1" * (len(data) - len(data.lstrip(b"\x00"))) + text
-
 
 def main() -> None:
     name = sys.argv[1]
     message = (sys.argv[2] if len(sys.argv) > 2 else "Signed by a Keylet local signer").encode()
     # auth_ttl lets later calls in this process skip the prompt, up to the app's setting.
     signed = sign_with_signer(name=name, payload=message, auth_ttl=60)
-    print({"address": signed.address, "signature": base58(bytes.fromhex(signed.signature[2:]))})
+    if signed.curve != "ed25519":
+        raise ValueError("The signer must use Ed25519")
+    signature = b58encode(bytes.fromhex(signed.signature[2:])).decode("ascii")
+    print({"address": signed.address, "signature": signature})
 
 
 if __name__ == "__main__":

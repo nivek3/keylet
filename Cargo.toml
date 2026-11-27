@@ -26,6 +26,7 @@ wallet-client = { path = "crates/client" }
 wallet-crypto = { path = "crates/crypto" }
 
 # external dependencies
+base16ct = { version = "=1.0.0", features = ["alloc"] }
 bip32 = { version = "=0.6.0", default-features = false, features = [
 	"alloc",
 	"secp256k1",
@@ -88,6 +89,7 @@ solana-ed25519 = { version = "=0.2.4", default-features = false, features = [
 	"precomputed-tables",
 	"zeroize",
 ] }
+strum = { version = "=0.28.0", features = ["derive"] }
 thiserror = "=2.0.21"
 tokio = { version = "1", features = ["rt"] }
 zeroize = "=1.9.1"

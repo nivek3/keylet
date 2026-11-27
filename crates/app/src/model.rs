@@ -3,70 +3,7 @@ pub use wallet_crypto::Curve;
 use wallet_crypto::{DeriveError, PublicKey, Seed, encode_hex};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
-pub type Result<T> = std::result::Result<T, Failure>;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Failure {
-    Cancelled,
-    Authentication,
-    Missing,
-    Duplicate,
-    Keychain,
-    Configuration,
-    Input,
-    Mnemonic,
-    Derivation,
-    PublicKey,
-    Address,
-    Transport,
-    Corrupt,
-    Catalog,
-    CatalogChanged,
-    Settings,
-}
-
-impl Failure {
-    pub fn code(self) -> &'static str {
-        match self {
-            Self::Cancelled => "CANCELLED",
-            Self::Authentication => "AUTHENTICATION_FAILED",
-            Self::Missing => "NOT_FOUND",
-            Self::Duplicate => "ALREADY_EXISTS",
-            Self::Keychain => "KEYCHAIN_ERROR",
-            Self::Configuration => "SIGNING_CONFIGURATION",
-            Self::Input => "INVALID_INPUT",
-            Self::Mnemonic => "INVALID_MNEMONIC",
-            Self::Derivation => "DERIVATION_FAILED",
-            Self::PublicKey => "PUBLIC_KEY_MISMATCH",
-            Self::Address => "ADDRESS_MISMATCH",
-            Self::Transport => "TRANSPORT_ERROR",
-            Self::Corrupt => "INVALID_ITEM",
-            Self::Catalog => "NAME_LIST_ERROR",
-            Self::CatalogChanged => "NAME_LIST_CHANGED",
-            Self::Settings => "SETTINGS_ERROR",
-        }
-    }
-
-    pub fn message(self) -> &'static str {
-        match self {
-            Self::Settings => {
-                "Unable to read authentication settings. Open Settings and save an option."
-            }
-            Self::Mnemonic => "Check the seed phrase words and their order.",
-            Self::Address => {
-                "The seed phrase, passphrase, or path doesn't match this Ethereum address."
-            }
-            Self::PublicKey => {
-                "The seed phrase, passphrase, or path doesn't match this Ed25519 public key."
-            }
-            Self::Duplicate => "That name already exists. The existing wallet was not changed.",
-            Self::Configuration => {
-                "The app's signing or secure-input configuration is invalid. Rebuild with your Personal Team."
-            }
-            Self::Authentication => "macOS authentication was not completed. Nothing was unlocked.",
-            _ => "Check the name, path, and passphrase. Nothing was saved.",
-        }
-    }
-}
+pub use crate::error::{Failure, Result};
 
 #[derive(Serialize, Deserialize)]
 pub struct KeyRequest {

@@ -13,6 +13,7 @@ bs58.workspace = true
 core-foundation.workspace = true
 k256.workspace = true
 libc.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 solana-ed25519.workspace = true
 thiserror.workspace = true

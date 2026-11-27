@@ -60,9 +60,10 @@ print(signed.signature, signed.recovery_id)
 - **Keylet signs blindly.** It does not decode payloads or apply transaction policies.
 - Calls with the same `name` and `auth_ttl` share one signing session in this process. The app's **Settings → Reuse signer auth** sets how long a session may sign without asking again (default 0). `auth_ttl` can only shorten that window. At most 8 sessions stay open per process: a session closes once it has been idle longer than its `auth_ttl`, and the least recently used one closes when another is needed. Invalid requests raise `ValueError("Invalid signer request")`, and app failures raise `RuntimeError` with the same codes as `get_key_pair`.
 
-The [`examples/`](examples) directory signs a Bitcoin sighash for a P2WPKH witness and a Solana message, using only the standard library:
+The [`examples/`](examples) directory signs a Bitcoin sighash for a P2WPKH witness and a Solana message. In the environment where you installed Keylet, install the example dependencies and run:
 
 ```sh
+python -m pip install base58 cryptography
 python examples/sign_bitcoin_sighash.py evm <32-byte sighash hex>
 python examples/sign_solana_message.py sol "hello"
 ```

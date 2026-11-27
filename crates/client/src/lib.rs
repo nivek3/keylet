@@ -1,5 +1,6 @@
 //! Shared client for the signed macOS app's private key request protocol.
 
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     io::{Read, Write},
@@ -13,11 +14,13 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use wallet_crypto::error::HelperError;
 use wallet_crypto::{Curve, encode_hex, valid_wallet_name};
 use zeroize::Zeroizing;
 
 mod discovery;
 mod error;
+mod protocol;
 pub mod signer;
 
 pub use error::ClientError;
@@ -106,73 +109,57 @@ fn request(
     )
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WalletSelectionInput {
+    name: String,
+    #[serde(deserialize_with = "protocol::curve")]
+    curve: Curve,
+    #[serde(default, deserialize_with = "protocol::present")]
+    index: Option<f64>,
+    #[serde(default, deserialize_with = "protocol::present")]
+    path: Option<String>,
+    #[serde(default, rename = "authTTL", deserialize_with = "protocol::present")]
+    auth_ttl: Option<f64>,
+}
+
 fn validate(input: &Value) -> BridgeResult<(String, Curve, String, u64)> {
-    if input
-        .as_object()
-        .ok_or(InvalidWalletSelection)?
-        .keys()
-        .any(|key| {
-            !matches!(
-                key.as_str(),
-                "name" | "curve" | "index" | "path" | "authTTL"
-            )
-        })
-    {
+    let WalletSelectionInput {
+        name,
+        curve,
+        index,
+        path,
+        auth_ttl,
+    } = protocol::request(input, InvalidWalletSelection)?;
+    if !valid_wallet_name(&name) || (path.is_some() && index.is_some()) {
         return Err(InvalidWalletSelection);
     }
-    let name = input
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or(InvalidWalletSelection)?;
-    let curve = match input.get("curve").and_then(Value::as_str) {
-        Some("secp256k1") => Curve::Secp256k1,
-        Some("ed25519") => Curve::Ed25519,
-        _ => return Err(InvalidWalletSelection),
-    };
-    if !valid_wallet_name(name) {
+    let index = index.unwrap_or_default();
+    if !(0.0..2_147_483_648.0).contains(&index) || index.fract() != 0.0 {
         return Err(InvalidWalletSelection);
     }
-    let index = match input.get("index") {
-        None => 0,
-        Some(value) => {
-            let number = value.as_f64().ok_or(InvalidWalletSelection)?;
-            if !number.is_finite()
-                || number.fract() != 0.0
-                || !(0.0..2_147_483_648.0).contains(&number)
-            {
-                return Err(InvalidWalletSelection);
-            }
-            number as u32
-        }
-    };
-    if input.get("path").is_some() && input.get("index").is_some() {
-        return Err(InvalidWalletSelection);
-    }
-    let path = match input.get("path") {
-        Some(value) => value.as_str().ok_or(InvalidWalletSelection)?.to_owned(),
-        None if curve == Curve::Secp256k1 => format!("m/44'/60'/0'/0/{index}"),
+    let path = match path {
+        Some(path) => path,
+        None if curve == Curve::Secp256k1 => format!("m/44'/60'/0'/0/{}", index as u32),
         None => return Err(InvalidWalletSelection),
     };
     if !curve.valid_wallet_path(&path) {
         return Err(InvalidWalletSelection);
     }
-    let authentication_ttl = match input.get("authTTL") {
+    let ttl = match auth_ttl {
+        Some(value) => protocol::auth_seconds(value).ok_or(InvalidWalletSelection)?,
         None => u64::MAX, // No caller cap: follow the app setting.
-        Some(value) => value
-            .as_f64()
-            .filter(|value| (0.0..=9_007_199_254_740_991.0).contains(value) && value.fract() == 0.0)
-            .ok_or(InvalidWalletSelection)? as u64,
     };
-    Ok((name.to_owned(), curve, path, authentication_ttl))
+    Ok((name, curve, path, ttl))
 }
 
 fn unlock(selection: &Selection, cancelled: impl Fn() -> bool) -> BridgeResult<KeyPair> {
     let mut session = SESSION
         .get_or_init(|| Mutex::new(None))
         .lock()
-        .map_err(|_| ClientError::Keychain)?;
+        .map_err(|_| HelperError::Keychain)?;
     if cancelled() {
-        return Err(ClientError::Cancelled);
+        return Err(ClientError::Helper(HelperError::Cancelled));
     }
     let reusable = match session.as_mut() {
         Some(helper)
@@ -181,7 +168,7 @@ fn unlock(selection: &Selection, cancelled: impl Fn() -> bool) -> BridgeResult<K
             helper
                 .child
                 .try_wait()
-                .map_err(|_| ClientError::Transport)?
+                .map_err(|_| HelperError::Transport)?
                 .is_none()
         }
         _ => false,
@@ -190,7 +177,7 @@ fn unlock(selection: &Selection, cancelled: impl Fn() -> bool) -> BridgeResult<K
         *session = None;
         *session = Some(AppSession::start(selection)?);
     }
-    let result = session.as_mut().ok_or(ClientError::Transport)?.read_key(
+    let result = session.as_mut().ok_or(HelperError::Transport)?.read_key(
         selection,
         Duration::from_secs(120),
         cancelled,
@@ -218,7 +205,7 @@ fn nonblocking(fd: RawFd) -> BridgeResult<()> {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     // SAFETY: as above; only the status flags change.
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err(ClientError::Transport);
+        return Err(HelperError::Transport.into());
     }
     Ok(())
 }
@@ -232,7 +219,7 @@ fn drain(reader: &mut impl Read, output: &mut Vec<u8>, limit: usize) -> BridgeRe
             Ok(_) => return Err(InvalidHelperResponse),
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(false),
-            Err(_) => return Err(ClientError::Transport),
+            Err(_) => return Err(HelperError::Transport.into()),
         }
     }
 }
@@ -256,7 +243,7 @@ impl Drop for AppSession {
 
 impl AppSession {
     fn start(selection: &Selection) -> BridgeResult<Self> {
-        let (secret, child_secret) = UnixStream::pair().map_err(|_| ClientError::Transport)?;
+        let (secret, child_secret) = UnixStream::pair().map_err(|_| HelperError::Transport)?;
         let fd = child_secret.as_raw_fd();
         let mut command = helper_command(&selection.helper);
         command
@@ -280,9 +267,9 @@ impl AppSession {
             .map_err(|_| ClientError::HelperStartFailed)?;
         drop(child_secret);
         let streams = (|| {
-            let stdin = child.stdin.take().ok_or(ClientError::Transport)?;
-            let stdout = child.stdout.take().ok_or(ClientError::Transport)?;
-            let stderr = child.stderr.take().ok_or(ClientError::Transport)?;
+            let stdin = child.stdin.take().ok_or(HelperError::Transport)?;
+            let stdout = child.stdout.take().ok_or(HelperError::Transport)?;
+            let stderr = child.stderr.take().ok_or(HelperError::Transport)?;
             for fd in [secret.as_raw_fd(), stdout.as_raw_fd(), stderr.as_raw_fd()] {
                 nonblocking(fd)?;
             }
@@ -314,13 +301,13 @@ impl AppSession {
         cancelled: impl Fn() -> bool,
     ) -> BridgeResult<KeyPair> {
         let request = json!({"name": selection.name, "curve": selection.curve.name(), "path": selection.path});
-        writeln!(self.stdin, "{request}").map_err(|_| ClientError::Transport)?;
+        writeln!(self.stdin, "{request}").map_err(|_| HelperError::Transport)?;
         let mut key = Zeroizing::new(Vec::with_capacity(32));
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let deadline = Instant::now() + timeout;
         loop {
             if cancelled() {
-                return Err(ClientError::Cancelled);
+                return Err(ClientError::Helper(HelperError::Cancelled));
             }
             let key_done = drain(&mut self.secret, &mut key, 32)?;
             let out_done = drain(&mut self.stdout, &mut out, 2048)?;
@@ -328,7 +315,7 @@ impl AppSession {
             if key.len() == 32 && out.last() == Some(&b'\n') {
                 return parse_response(selection, &key, &out, &err);
             }
-            if let Some(status) = self.child.try_wait().map_err(|_| ClientError::Transport)?
+            if let Some(status) = self.child.try_wait().map_err(|_| HelperError::Transport)?
                 && key_done
                 && out_done
                 && err_done
@@ -347,17 +334,26 @@ impl AppSession {
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KeyPairReply {
+    name: String,
+    #[serde(deserialize_with = "protocol::curve")]
+    curve: Curve,
+    path: String,
+    public_key: String,
+}
+
 fn parse_response(
     selection: &Selection,
     key: &[u8],
     out: &[u8],
     err: &[u8],
 ) -> BridgeResult<KeyPair> {
-    let response: Value = serde_json::from_slice(out).map_err(|_| InvalidHelperResponse)?;
-    if response.get("name").and_then(Value::as_str) != Some(&selection.name)
-        || response.get("curve").and_then(Value::as_str) != Some(selection.curve.name())
-        || response.get("path").and_then(Value::as_str) != Some(&selection.path)
-        || !err.iter().all(u8::is_ascii_whitespace)
+    let response: KeyPairReply = protocol::reply(out, err)?;
+    if response.name != selection.name
+        || response.curve != selection.curve
+        || response.path != selection.path
     {
         return Err(InvalidHelperResponse);
     }
@@ -379,7 +375,7 @@ fn parse_response(
             .to_vec(),
     };
     let public = encode_hex(&public);
-    if response.get("publicKey").and_then(Value::as_str) != Some(&public) {
+    if response.public_key != public {
         return Err(InvalidHelperResponse);
     }
     Ok(KeyPair { private, public })
@@ -433,6 +429,7 @@ mod tests {
         for input in [
             json!({"name":"test"}),
             json!({"name":"test", "curve":"p256"}),
+            json!({"name":"test", "curve":{"secp256k1":null}}),
             json!({"name":"test", "curve":"ed25519"}),
             json!({"name":"test", "curve":"ed25519", "path":"m/0'/1"}),
             json!({"name":"test", "curve":"ed25519", "path":"m/0'", "index":0}),
@@ -443,6 +440,7 @@ mod tests {
             json!({"name":"test", "curve":"secp256k1", "helperPath":"/tmp/helper"}),
             json!({"name":"test", "curve":"secp256k1", "unknown":true}),
             json!({"name":"test", "curve":"secp256k1", "path":null}),
+            json!(["test", "secp256k1"]),
         ] {
             assert!(matches!(validate(&input), Err(InvalidWalletSelection)));
         }
@@ -477,11 +475,10 @@ mod tests {
     #[test]
     fn keypair_response_rejects_metadata_and_key_mismatches() {
         // RFC 8032 public test vector, never use for funds.
-        let key_hex = "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60";
-        let key: Vec<u8> = (0..64)
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&key_hex[i..i + 2], 16).unwrap())
-            .collect();
+        let key = wallet_crypto::decode_hex(
+            "0x9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",
+        )
+        .unwrap();
         let selection = Selection {
             helper: PathBuf::new(),
             name: "test".into(),
@@ -501,7 +498,14 @@ mod tests {
         response["curve"] = json!("ed25519");
         response["publicKey"] = json!(encode_hex(&[0; 32]));
         assert!(parse_response(&selection, &key, response.to_string().as_bytes(), b"").is_err());
-        assert_eq!(reported_error(b"INTERNAL_ERROR\n"), ClientError::Internal);
+        assert_eq!(
+            reported_error(b"INTERNAL_ERROR\n"),
+            ClientError::Helper(HelperError::Internal)
+        );
+        assert_eq!(
+            reported_error(b"NAME_LIST_CHANGED\n").to_string(),
+            HelperError::CatalogChanged.to_string()
+        );
         assert_eq!(
             reported_error(b"untrusted exception and pretend secret"),
             ClientError::HelperFailed
@@ -550,19 +554,19 @@ mod tests {
             path: "m/0'".into(),
             authentication_ttl: 300,
         };
-        assert!(matches!(
-            unlock(&selection, || false),
-            Err(ClientError::Cancelled)
-        ));
+        assert_eq!(
+            unlock(&selection, || false).err(),
+            Some(HelperError::Cancelled.into())
+        );
         fs::write(
             &helper,
             "#!/bin/sh\nread request\nprintf 'NOT_FOUND\\n' >&2\nexit 1\n",
         )
         .unwrap();
-        assert!(matches!(
-            unlock(&selection, || false),
-            Err(ClientError::NotFound)
-        ));
+        assert_eq!(
+            unlock(&selection, || false).err(),
+            Some(HelperError::Missing.into())
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

@@ -1,3 +1,4 @@
+use crate::error::failure_message;
 mod accounts;
 mod wallets;
 
@@ -628,8 +629,7 @@ impl WalletApp {
             Ok(entries) => self.wallets = entries,
             Err(error) => {
                 self.message = format!(
-                    "Unable to load the wallet list ({}). Use Sync from Keychain to rebuild it.",
-                    error.code()
+                    "Unable to load the wallet list ({error}). Use Sync from Keychain to rebuild it."
                 );
             }
         }
@@ -649,10 +649,7 @@ impl WalletApp {
                     "The wallet list changed during sync. Run Sync from Keychain again.".into();
             }
             Err(error) => {
-                self.message = format!(
-                    "Sync stopped ({}). The previous list was kept.",
-                    error.code()
-                );
+                self.message = format!("Sync stopped ({error}). The previous list was kept.");
             }
         }
     }
@@ -665,7 +662,7 @@ impl WalletApp {
                 self.message.clear();
                 self.stage = Stage::Delete;
             }
-            Err(error) => self.message = format!("Unable to prepare deletion ({}).", error.code()),
+            Err(error) => self.message = format!("Unable to prepare deletion ({error})."),
         }
     }
 
@@ -880,7 +877,7 @@ impl WalletApp {
                             self.message.clear();
                             self.stage = Stage::Secrets;
                         }
-                        Err(e) => self.message = e.message().into(),
+                        Err(e) => self.message = failure_message(e).into(),
                     }
                 }
             }
@@ -918,7 +915,7 @@ impl WalletApp {
                     && focused
                     && let Err(error) = self.prepare()
                 {
-                    self.message = error.message().into();
+                    self.message = failure_message(error).into();
                 }
                 if cancel {
                     if self.cli_import {
@@ -987,7 +984,7 @@ impl WalletApp {
                 {
                     match self.clipboard.copy(pending.phrase()) {
                         Ok(()) => ctx.request_repaint(),
-                        Err(e) => self.message = e.message().into(),
+                        Err(e) => self.message = failure_message(e).into(),
                     }
                 }
                 if next && focused {
@@ -1034,7 +1031,7 @@ impl WalletApp {
                         self.message = if e == Failure::Input && !skip {
                             "Check each word against its number. Nothing was saved.".into()
                         } else {
-                            e.message().into()
+                            failure_message(e).into()
                         };
                     }
                 }
@@ -1093,7 +1090,7 @@ impl WalletApp {
                     && focused
                     && let Err(error) = self.reveal_wallet(&name)
                 {
-                    self.message = format!("Seed phrase not shown ({}).", error.code());
+                    self.message = format!("Seed phrase not shown ({error}).");
                 }
                 if clear {
                     self.clipboard.clear();
@@ -1212,8 +1209,7 @@ impl WalletApp {
                         Ok(()) => self.return_to_wallets(),
                         Err(error) => {
                             self.message = format!(
-                                "Deletion stopped ({}). Review the remaining wallets before trying again.",
-                                error.code()
+                                "Deletion stopped ({error}). Review the remaining wallets before trying again."
                             );
                         }
                     }
@@ -1307,7 +1303,7 @@ impl eframe::App for WalletApp {
         if let Err(error) = self.secure_input.set(focused && contains_secrets) {
             self.wipe_draft();
             self.cli_result.set(Some(Err(error)));
-            self.message = error.message().into();
+            self.message = failure_message(error).into();
             self.stage = Stage::Fatal;
         }
         self.clipboard.tick(Instant::now());

@@ -7,25 +7,22 @@ Compute the BIP-143 sighash with your Bitcoin library. The private key stays in 
 
 import sys
 
+from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature
 from keylet import sign_with_signer
 
 SIGHASH_ALL = 0x01
 
 
-def der_integer(value: bytes) -> bytes:
-    value = value.lstrip(b"\x00") or b"\x00"
-    if value[0] & 0x80:
-        value = b"\x00" + value
-    return bytes([0x02, len(value)]) + value
-
-
 def main() -> None:
     name, sighash = sys.argv[1], bytes.fromhex(sys.argv[2].removeprefix("0x"))
     signed = sign_with_signer(name=name, payload=sighash)  # Exactly 32 bytes for secp256k1.
+    if signed.curve != "secp256k1":
+        raise ValueError("The signer must use secp256k1")
     raw = bytes.fromhex(signed.signature[2:])
-    body = der_integer(raw[:32]) + der_integer(raw[32:])  # Keylet returns low-S already.
-    der = bytes([0x30, len(body)]) + body + bytes([SIGHASH_ALL])
-    print({"witness": [der.hex(), signed.public_key[2:]]})
+    r = int.from_bytes(raw[:32], "big")
+    s = int.from_bytes(raw[32:], "big")
+    signature = encode_dss_signature(r, s) + bytes([SIGHASH_ALL])
+    print({"witness": [signature.hex(), signed.public_key[2:]]})
 
 
 if __name__ == "__main__":

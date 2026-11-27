@@ -1,5 +1,6 @@
 //! Keylet: the macOS wallet app and its `keylet` command-line helper.
 mod catalog;
+mod error;
 mod macos;
 mod model;
 mod signer;
@@ -207,10 +208,10 @@ fn main_impl() -> Result<()> {
 
 fn main() {
     // Suppress panic payloads and backtraces, which may contain secret-bearing inputs.
-    std::panic::set_hook(Box::new(|_| eprintln!("INVALID_INPUT")));
+    std::panic::set_hook(Box::new(|_| eprintln!("{}", Failure::Internal)));
     let outcome = objc2::rc::autoreleasepool(|_| main_impl());
     if let Err(error) = outcome {
-        eprintln!("{}", error.code());
+        eprintln!("{error}");
         std::process::exit(1);
     }
 }

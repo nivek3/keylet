@@ -16,6 +16,7 @@ use std::{
     thread,
     time::Duration,
 };
+use wallet_client::ClientError;
 use zeroize::Zeroizing;
 
 static CALLER_PID: AtomicU32 = AtomicU32::new(0);
@@ -34,7 +35,7 @@ fn integer(value: &Bound<'_, PyAny>) -> PyResult<i64> {
         .cast_exact::<PyInt>()
         .ok()
         .and_then(|value| value.extract().ok())
-        .ok_or_else(|| PyValueError::new_err(wallet_client::INVALID))
+        .ok_or_else(|| PyValueError::new_err(ClientError::InvalidWalletSelection.to_string()))
 }
 
 fn selection(
@@ -60,7 +61,7 @@ fn selection(
 /// Runs a blocking client request off the GIL while still handling Python signals.
 fn run<T: Send + 'static>(
     py: Python<'_>,
-    request: impl FnOnce(&AtomicBool) -> Result<T, &'static str> + Send + 'static,
+    request: impl FnOnce(&AtomicBool) -> Result<T, ClientError> + Send + 'static,
 ) -> PyResult<T> {
     let pid = process::id();
     // A fork can inherit the parent's helper pipes or a locked mutex.
@@ -94,18 +95,17 @@ fn run<T: Send + 'static>(
             }
         }
     };
-    result.map_err(|code| {
-        if code == wallet_client::INVALID || code == wallet_client::signer::INVALID_SIGNER {
-            PyValueError::new_err(code)
-        } else {
-            PyRuntimeError::new_err(code)
+    result.map_err(|error| match error {
+        ClientError::InvalidWalletSelection | ClientError::InvalidSignerRequest => {
+            PyValueError::new_err(error.to_string())
         }
+        _ => PyRuntimeError::new_err(error.to_string()),
     })
 }
 
 fn read_key_pair(
     py: Python<'_>,
-    request: impl FnOnce(&AtomicBool) -> Result<wallet_client::KeyPair, &'static str> + Send + 'static,
+    request: impl FnOnce(&AtomicBool) -> Result<wallet_client::KeyPair, ClientError> + Send + 'static,
 ) -> PyResult<KeyPair> {
     let pair = run(py, request)?;
     let (public_key, private_key) = pair.into_hex();
@@ -203,10 +203,10 @@ impl SignerPublicKey {
 fn sign_input(name: &str, payload: &[u8], auth_ttl: Option<&Bound<'_, PyAny>>) -> PyResult<Value> {
     let mut input = json!({ "name": name, "payload": wallet_crypto::encode_hex(payload) });
     if let Some(auth_ttl) = auth_ttl {
-        input["authTTL"] = json!(
-            integer(auth_ttl)
-                .map_err(|_| PyValueError::new_err(wallet_client::signer::INVALID_SIGNER))?
-        );
+        input["authTTL"] =
+            json!(integer(auth_ttl).map_err(|_| PyValueError::new_err(
+                ClientError::InvalidSignerRequest.to_string()
+            ))?);
     }
     Ok(input)
 }

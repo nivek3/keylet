@@ -11,6 +11,9 @@ importers:
 
   .:
     devDependencies:
+      '@noble/curves':
+        specifier: 1.9.1
+        version: 1.9.1
       '@types/node':
         specifier: ^22.0.0
         version: 22.20.5

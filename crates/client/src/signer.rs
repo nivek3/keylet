@@ -4,10 +4,15 @@
 //! the app's signer authentication window applies across calls in this
 //! process. Every response is verified against the reported public key.
 
-use super::{BAD_RESPONSE, BridgeResult, drain, helper_command, nonblocking, reported_error};
+use super::{
+    BridgeResult, ClientError,
+    ClientError::{InvalidHelperResponse, InvalidSignerRequest},
+    drain, helper_command, nonblocking, protocol, reported_error,
+};
 use k256::ecdsa::{
     RecoveryId, Signature as EcdsaSignature, VerifyingKey, signature::hazmat::PrehashVerifier,
 };
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
     collections::HashMap,
@@ -19,14 +24,18 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+use wallet_crypto::error::HelperError;
 use wallet_crypto::{
     Curve, MAX_SIGNER_PAYLOAD_BYTES, SECP256K1_DIGEST_BYTES, decode_hex, encode_hex,
     valid_wallet_name,
 };
 
-/// Error returned when a signer request fails validation.
-pub const INVALID_SIGNER: &str = "Invalid signer request";
 const TIMEOUT: Duration = Duration::from_secs(120);
+// Bound buffered helper output before trusting any of it.
+const MAX_STDOUT_BYTES: usize = 4_096;
+const MAX_STDERR_BYTES: usize = 1_024;
+// Check for output, exit, or cancellation between nonblocking reads.
+const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
 /// A signature returned by a local signer and verified by this client.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,7 +121,7 @@ fn prune(sessions: &mut HashMap<SessionKey, Session>, keep: &SessionKey, now: In
 ///
 /// # Errors
 ///
-/// Returns [`INVALID_SIGNER`] for invalid input, or a stable code for discovery,
+/// Returns [`InvalidSignerRequest`] for invalid input, or a client error for discovery,
 /// transport, app, or verification failures.
 pub fn sign(input: &Value, cancelled: impl Fn() -> bool) -> BridgeResult<Signature> {
     sign_with(input, super::discovery::app_executable, cancelled)
@@ -138,7 +147,7 @@ pub fn sign_for_test(
 ///
 /// # Errors
 ///
-/// Returns [`INVALID_SIGNER`] for invalid input, or a stable code for discovery,
+/// Returns [`InvalidSignerRequest`] for invalid input, or a client error for discovery,
 /// transport, or app failures.
 pub fn public_key(input: &Value, cancelled: impl Fn() -> bool) -> BridgeResult<SignerPublicKey> {
     public_key_with(input, super::discovery::app_executable, cancelled)
@@ -158,45 +167,41 @@ pub fn public_key_for_test(
     public_key_with(input, || Ok(executable), cancelled)
 }
 
-fn check_keys(input: &Value, allowed: &[&str]) -> BridgeResult<()> {
-    let object = input.as_object().ok_or(INVALID_SIGNER)?;
-    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
-        return Err(INVALID_SIGNER);
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PublicKeyInput {
+    name: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SignInput {
+    name: String,
+    payload: String,
+    #[serde(default, rename = "authTTL", deserialize_with = "protocol::present")]
+    auth_ttl: Option<f64>,
+}
+
+fn check_name(name: &str) -> BridgeResult<()> {
+    if !valid_wallet_name(name) {
+        return Err(InvalidSignerRequest);
     }
     Ok(())
 }
 
-fn signer_name(input: &Value) -> BridgeResult<String> {
-    let name = input
-        .get("name")
-        .and_then(Value::as_str)
-        .ok_or(INVALID_SIGNER)?;
-    if !valid_wallet_name(name) {
-        return Err(INVALID_SIGNER);
-    }
-    Ok(name.to_owned())
-}
-
 fn validate_sign(input: &Value) -> BridgeResult<(String, Vec<u8>, Option<u64>)> {
-    check_keys(input, &["name", "payload", "authTTL"])?;
-    let name = signer_name(input)?;
-    let payload = input
-        .get("payload")
-        .and_then(Value::as_str)
-        .and_then(decode_hex)
+    let SignInput {
+        name,
+        payload,
+        auth_ttl,
+    } = protocol::request(input, InvalidSignerRequest)?;
+    check_name(&name)?;
+    let payload = decode_hex(&payload)
         .filter(|payload| (1..=MAX_SIGNER_PAYLOAD_BYTES).contains(&payload.len()))
-        .ok_or(INVALID_SIGNER)?;
-    let ttl = match input.get("authTTL") {
-        None => None, // Follow the app setting.
-        Some(value) => Some(
-            value
-                .as_f64()
-                .filter(|value| {
-                    (0.0..=9_007_199_254_740_991.0).contains(value) && value.fract() == 0.0
-                })
-                .ok_or(INVALID_SIGNER)? as u64,
-        ),
-    };
+        .ok_or(InvalidSignerRequest)?;
+    let ttl = auth_ttl
+        .map(|value| protocol::auth_seconds(value).ok_or(InvalidSignerRequest))
+        .transpose()?;
     Ok((name, payload, ttl))
 }
 
@@ -214,9 +219,9 @@ fn sign_with(
     let mut sessions = SESSIONS
         .get_or_init(|| Mutex::new(HashMap::new()))
         .lock()
-        .map_err(|_| "KEYCHAIN_ERROR")?;
+        .map_err(|_| HelperError::Keychain)?;
     if cancelled() {
-        return Err("CANCELLED");
+        return Err(ClientError::Helper(HelperError::Cancelled));
     }
     prune(&mut sessions, &key, Instant::now());
     let alive = match sessions.get_mut(&key) {
@@ -224,7 +229,7 @@ fn sign_with(
             .process
             .child
             .try_wait()
-            .map_err(|_| "TRANSPORT_ERROR")?
+            .map_err(|_| HelperError::Transport)?
             .is_none(),
         None => false,
     };
@@ -234,7 +239,7 @@ fn sign_with(
         if let Some(ttl) = key.ttl {
             args.extend(["--ttl".to_owned(), ttl.to_string()]);
         }
-        let process = HelperProcess::start(&key.helper, &args, true)?;
+        let process = HelperProcess::start(&key.helper, &args, Stdio::piped())?;
         sessions.insert(
             key.clone(),
             Session {
@@ -243,7 +248,7 @@ fn sign_with(
             },
         );
     }
-    let session = sessions.get_mut(&key).ok_or("TRANSPORT_ERROR")?;
+    let session = sessions.get_mut(&key).ok_or(HelperError::Transport)?;
     let frame = json!({ "payload": encode_hex(&payload) });
     let result = session
         .process
@@ -265,99 +270,91 @@ fn public_key_with(
     discover: impl FnOnce() -> BridgeResult<PathBuf>,
     cancelled: impl Fn() -> bool,
 ) -> BridgeResult<SignerPublicKey> {
-    check_keys(input, &["name"])?;
-    let name = signer_name(input)?;
+    let PublicKeyInput { name } = protocol::request(input, InvalidSignerRequest)?;
+    check_name(&name)?;
     let helper = discover()?;
     let args = ["signer".to_owned(), "public-key".to_owned(), name.clone()];
-    let mut process = HelperProcess::start(&helper, &args, false)?;
+    let mut process = HelperProcess::start(&helper, &args, Stdio::null())?;
     let (line, err) = process.read_line(TIMEOUT, &cancelled)?;
-    let response = parse_object(&line, &err)?;
-    let (curve, public_key, address) =
-        check_public_key(&name, &response, &["name", "curve", "publicKey", "address"])?;
+    let response: SignerReply = protocol::reply(&line, &err)?;
+    if response.signature.is_some() || response.recovery_id.is_some() {
+        return Err(InvalidHelperResponse);
+    }
+    let (public_key, address) = response.check_public_key(&name)?;
     Ok(SignerPublicKey {
         name,
-        curve,
+        curve: response.curve,
         public_key: encode_hex(&public_key),
         address,
     })
 }
 
-fn parse_object(line: &[u8], err: &[u8]) -> BridgeResult<serde_json::Map<String, Value>> {
-    if !err.iter().all(u8::is_ascii_whitespace) {
-        return Err(BAD_RESPONSE);
-    }
-    match serde_json::from_slice(line).map_err(|_| BAD_RESPONSE)? {
-        Value::Object(object) => Ok(object),
-        _ => Err(BAD_RESPONSE),
-    }
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SignerReply {
+    name: String,
+    #[serde(deserialize_with = "protocol::curve")]
+    curve: Curve,
+    public_key: String,
+    #[serde(default, deserialize_with = "protocol::present")]
+    address: Option<String>,
+    #[serde(default, deserialize_with = "protocol::present")]
+    signature: Option<String>,
+    #[serde(default, deserialize_with = "protocol::present")]
+    recovery_id: Option<u8>,
 }
 
-/// Checks the shared public fields and returns the curve, raw public key, and address.
-fn check_public_key(
-    name: &str,
-    response: &serde_json::Map<String, Value>,
-    allowed: &[&str],
-) -> BridgeResult<(Curve, Vec<u8>, Option<String>)> {
-    if response.get("name").and_then(Value::as_str) != Some(name) {
-        return Err(BAD_RESPONSE);
-    }
-    let curve = match response.get("curve").and_then(Value::as_str) {
-        Some("ed25519") => Curve::Ed25519,
-        Some("secp256k1") => Curve::Secp256k1,
-        _ => return Err(BAD_RESPONSE),
-    };
-    let public_key = response
-        .get("publicKey")
-        .and_then(Value::as_str)
-        .and_then(decode_hex)
-        .ok_or(BAD_RESPONSE)?;
-    let address = match curve {
-        Curve::Ed25519 => {
-            let key: [u8; 32] = public_key.as_slice().try_into().map_err(|_| BAD_RESPONSE)?;
-            solana_ed25519::ed_sigs::VerificationKey::try_from(key).map_err(|_| BAD_RESPONSE)?;
-            let address = bs58::encode(key).into_string();
-            if response.get("address").and_then(Value::as_str) != Some(&address) {
-                return Err(BAD_RESPONSE);
-            }
-            Some(address)
+impl SignerReply {
+    fn check_public_key(&self, name: &str) -> BridgeResult<(Vec<u8>, Option<String>)> {
+        if self.name != name {
+            return Err(InvalidHelperResponse);
         }
-        Curve::Secp256k1 => {
-            if public_key.len() != 33 || response.contains_key("address") {
-                return Err(BAD_RESPONSE);
+        let public_key = decode_hex(&self.public_key).ok_or(InvalidHelperResponse)?;
+        let address = match self.curve {
+            Curve::Ed25519 => {
+                let key: [u8; 32] = public_key
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| InvalidHelperResponse)?;
+                solana_ed25519::ed_sigs::VerificationKey::try_from(key)
+                    .map_err(|_| InvalidHelperResponse)?;
+                let address = bs58::encode(key).into_string();
+                if self.address.as_deref() != Some(address.as_str()) {
+                    return Err(InvalidHelperResponse);
+                }
+                Some(address)
             }
-            VerifyingKey::from_sec1_bytes(&public_key).map_err(|_| BAD_RESPONSE)?;
-            None
-        }
-    };
-    if response.keys().any(|key| !allowed.contains(&key.as_str())) {
-        return Err(BAD_RESPONSE);
+            Curve::Secp256k1 => {
+                if public_key.len() != 33 || self.address.is_some() {
+                    return Err(InvalidHelperResponse);
+                }
+                VerifyingKey::from_sec1_bytes(&public_key).map_err(|_| InvalidHelperResponse)?;
+                None
+            }
+        };
+        Ok((public_key, address))
     }
-    Ok((curve, public_key, address))
 }
 
 fn parse_signature(name: &str, payload: &[u8], line: &[u8], err: &[u8]) -> BridgeResult<Signature> {
-    let response = parse_object(line, err)?;
-    let allowed = [
-        "name",
-        "curve",
-        "publicKey",
-        "address",
-        "signature",
-        "recoveryId",
-    ];
-    let (curve, public_key, address) = check_public_key(name, &response, &allowed)?;
+    let response: SignerReply = protocol::reply(line, err)?;
+    let (public_key, address) = response.check_public_key(name)?;
+    let curve = response.curve;
     let signature: [u8; 64] = response
-        .get("signature")
-        .and_then(Value::as_str)
+        .signature
+        .as_deref()
         .and_then(decode_hex)
         .and_then(|bytes| bytes.try_into().ok())
-        .ok_or(BAD_RESPONSE)?;
+        .ok_or(InvalidHelperResponse)?;
     let recovery_id = match curve {
         Curve::Ed25519 => {
-            if response.contains_key("recoveryId") {
-                return Err(BAD_RESPONSE);
+            if response.recovery_id.is_some() {
+                return Err(InvalidHelperResponse);
             }
-            let key: [u8; 32] = public_key.as_slice().try_into().map_err(|_| BAD_RESPONSE)?;
+            let key: [u8; 32] = public_key
+                .as_slice()
+                .try_into()
+                .map_err(|_| InvalidHelperResponse)?;
             solana_ed25519::ed_sigs::VerificationKey::try_from(key)
                 .and_then(|key| {
                     key.verify(
@@ -365,31 +362,32 @@ fn parse_signature(name: &str, payload: &[u8], line: &[u8], err: &[u8]) -> Bridg
                         payload,
                     )
                 })
-                .map_err(|_| BAD_RESPONSE)?;
+                .map_err(|_| InvalidHelperResponse)?;
             None
         }
         Curve::Secp256k1 => {
             let recovery = response
-                .get("recoveryId")
-                .and_then(Value::as_u64)
+                .recovery_id
                 .filter(|id| *id <= 1)
-                .ok_or(BAD_RESPONSE)? as u8;
-            let key = VerifyingKey::from_sec1_bytes(&public_key).map_err(|_| BAD_RESPONSE)?;
-            let ecdsa = EcdsaSignature::from_slice(&signature).map_err(|_| BAD_RESPONSE)?;
+                .ok_or(InvalidHelperResponse)?;
+            let key =
+                VerifyingKey::from_sec1_bytes(&public_key).map_err(|_| InvalidHelperResponse)?;
+            let ecdsa =
+                EcdsaSignature::from_slice(&signature).map_err(|_| InvalidHelperResponse)?;
             // Bitcoin and Ethereum both require low-S signatures: normalizing must be a no-op.
             if payload.len() != SECP256K1_DIGEST_BYTES || ecdsa.normalize_s() != ecdsa {
-                return Err(BAD_RESPONSE);
+                return Err(InvalidHelperResponse);
             }
             key.verify_prehash(payload, &ecdsa)
-                .map_err(|_| BAD_RESPONSE)?;
+                .map_err(|_| InvalidHelperResponse)?;
             let recovered = VerifyingKey::recover_from_prehash(
                 payload,
                 &ecdsa,
-                RecoveryId::from_byte(recovery).ok_or(BAD_RESPONSE)?,
+                RecoveryId::from_byte(recovery).ok_or(InvalidHelperResponse)?,
             )
-            .map_err(|_| BAD_RESPONSE)?;
+            .map_err(|_| InvalidHelperResponse)?;
             if recovered != key {
-                return Err(BAD_RESPONSE);
+                return Err(InvalidHelperResponse);
             }
             Some(recovery)
         }
@@ -420,21 +418,19 @@ impl Drop for HelperProcess {
 }
 
 impl HelperProcess {
-    fn start(helper: &Path, args: &[String], interactive: bool) -> BridgeResult<Self> {
+    fn start(helper: &Path, args: &[String], stdin: Stdio) -> BridgeResult<Self> {
         let mut command = helper_command(helper);
         command
             .args(args)
-            .stdin(if interactive {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            })
+            .stdin(stdin)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command.spawn().map_err(|_| "HELPER_START_FAILED")?;
+        let mut child = command
+            .spawn()
+            .map_err(|_| ClientError::HelperStartFailed)?;
         let streams = (|| {
-            let stdout = child.stdout.take().ok_or("TRANSPORT_ERROR")?;
-            let stderr = child.stderr.take().ok_or("TRANSPORT_ERROR")?;
+            let stdout = child.stdout.take().ok_or(HelperError::Transport)?;
+            let stderr = child.stderr.take().ok_or(HelperError::Transport)?;
             for fd in [stdout.as_raw_fd(), stderr.as_raw_fd()] {
                 nonblocking(fd)?;
             }
@@ -456,10 +452,10 @@ impl HelperProcess {
     }
 
     fn write_line(&mut self, line: &str) -> BridgeResult<()> {
-        let stdin = self.stdin.as_mut().ok_or("TRANSPORT_ERROR")?;
+        let stdin = self.stdin.as_mut().ok_or(HelperError::Transport)?;
         writeln!(stdin, "{line}")
             .and_then(|()| stdin.flush())
-            .map_err(|_| "TRANSPORT_ERROR")
+            .map_err(|_| HelperError::Transport.into())
     }
 
     /// Reads exactly one newline-terminated response and any stderr seen so far.
@@ -472,32 +468,32 @@ impl HelperProcess {
         let deadline = Instant::now() + timeout;
         loop {
             if cancelled() {
-                return Err("CANCELLED");
+                return Err(ClientError::Helper(HelperError::Cancelled));
             }
-            let out_done = drain(&mut self.stdout, &mut out, 4096)?;
-            let err_done = drain(&mut self.stderr, &mut err, 1024)?;
+            let out_done = drain(&mut self.stdout, &mut out, MAX_STDOUT_BYTES)?;
+            let err_done = drain(&mut self.stderr, &mut err, MAX_STDERR_BYTES)?;
             if let Some(end) = out.iter().position(|byte| *byte == b'\n') {
                 // One request yields one line; anything after it is a protocol error.
                 if end + 1 != out.len() {
-                    return Err(BAD_RESPONSE);
+                    return Err(InvalidHelperResponse);
                 }
                 out.truncate(end);
                 return Ok((out, err));
             }
-            if let Some(status) = self.child.try_wait().map_err(|_| "TRANSPORT_ERROR")?
+            if let Some(status) = self.child.try_wait().map_err(|_| HelperError::Transport)?
                 && out_done
                 && err_done
             {
                 return Err(if status.success() {
-                    BAD_RESPONSE
+                    InvalidHelperResponse
                 } else {
                     reported_error(&err)
                 });
             }
             if Instant::now() >= deadline {
-                return Err("AUTHENTICATION_TIMEOUT");
+                return Err(ClientError::AuthenticationTimeout);
             }
-            thread::sleep(Duration::from_millis(5));
+            thread::sleep(POLL_INTERVAL);
         }
     }
 }
@@ -567,20 +563,26 @@ mod tests {
             json!({"name": "agent", "payload": "0x00", "authTTL": -1}),
             json!({"name": "agent", "payload": "0x00", "authTTL": 0.5}),
             json!({"name": "agent", "payload": "0x00", "authTTL": "1"}),
+            json!({"name": "agent", "payload": "0x00", "authTTL": null}),
+            json!(["agent", "0x00"]),
             json!({"name": "agent", "payload": "0x00", "helperPath": "/tmp/x"}),
         ] {
-            assert_eq!(validate_sign(&input).err(), Some(INVALID_SIGNER), "{input}");
+            assert_eq!(
+                validate_sign(&input).err(),
+                Some(InvalidSignerRequest),
+                "{input}"
+            );
         }
         let discovered = std::cell::Cell::new(false);
         let result = sign_with(
             &json!({"name": "agent", "payload": "0x"}),
             || {
                 discovered.set(true);
-                Err("unreachable")
+                Err(ClientError::HelperFailed)
             },
             || false,
         );
-        assert_eq!(result.err(), Some(INVALID_SIGNER));
+        assert_eq!(result.err(), Some(InvalidSignerRequest));
         assert!(!discovered.get());
     }
 
@@ -619,11 +621,18 @@ mod tests {
             ("address", Value::Null),
             ("recoveryId", json!(0)),
             ("curve", json!("secp256k1")),
+            ("curve", json!({"ed25519":null})),
             ("signature", json!(encode_hex(&[0; 64]))),
             ("extra", json!(true)),
         ] {
             cases.push(("sol", b"message".to_vec(), edited(&ed, key, value)));
         }
+        let mut ed_with_null_recovery_id = ed.clone();
+        ed_with_null_recovery_id["recoveryId"] = Value::Null;
+        cases.push(("sol", b"message".to_vec(), ed_with_null_recovery_id));
+        let mut secp_with_null_address = secp.clone();
+        secp_with_null_address["address"] = Value::Null;
+        cases.push(("evm", DIGEST.to_vec(), secp_with_null_address));
         // Replace s with n - s: still a valid signature, but high-S.
         let low_s = decode_hex(secp["signature"].as_str().unwrap()).unwrap();
         let (r, s) = EcdsaSignature::from_slice(&low_s).unwrap().split_scalars();
@@ -642,13 +651,13 @@ mod tests {
         for (name, payload, response) in cases {
             assert_eq!(
                 parse(name, &payload, &response).err(),
-                Some(BAD_RESPONSE),
+                Some(InvalidHelperResponse),
                 "{response}"
             );
         }
         assert_eq!(
             parse_signature("sol", b"message", ed.to_string().as_bytes(), b"warning").err(),
-            Some(BAD_RESPONSE)
+            Some(InvalidHelperResponse)
         );
     }
 
@@ -741,11 +750,17 @@ mod tests {
         assert_eq!(starts(), "signer session reuse --ttl 60\n");
         request(None, &DIGEST).unwrap();
         assert_eq!(starts().lines().last(), Some("signer session reuse"));
-        assert_eq!(request(Some(60), &[0; 32]).err(), Some("CANCELLED"));
+        assert_eq!(
+            request(Some(60), &[0; 32]).err(),
+            Some(ClientError::Helper(HelperError::Cancelled))
+        );
         request(Some(60), &DIGEST).unwrap();
         assert_eq!(starts().lines().count(), 3);
         // A valid signature for another payload is rejected.
-        assert_eq!(request(Some(60), &[9; 32]).err(), Some(BAD_RESPONSE));
+        assert_eq!(
+            request(Some(60), &[9; 32]).err(),
+            Some(InvalidHelperResponse)
+        );
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -765,11 +780,11 @@ mod tests {
         );
         assert_eq!(
             public_key_for_test(&json!({"name": "other"}), helper, || false).err(),
-            Some("INVALID_INPUT")
+            Some(ClientError::Helper(HelperError::Input))
         );
         assert_eq!(
             public_key_for_test(&json!({"name": "sol", "x": 1}), PathBuf::new(), || false).err(),
-            Some(INVALID_SIGNER)
+            Some(InvalidSignerRequest)
         );
         fs::remove_dir_all(root).unwrap();
     }
@@ -779,16 +794,16 @@ mod tests {
         let (root, helper) = fixture("/bin/sleep 2\n");
         let args = ["signer".to_owned()];
         let start = Instant::now();
-        let mut process = HelperProcess::start(&helper, &args, true).unwrap();
+        let mut process = HelperProcess::start(&helper, &args, Stdio::piped()).unwrap();
         assert_eq!(
             process
                 .read_line(Duration::from_millis(40), &|| false)
                 .err(),
-            Some("AUTHENTICATION_TIMEOUT")
+            Some(ClientError::AuthenticationTimeout)
         );
         assert_eq!(
             process.read_line(Duration::from_secs(5), &|| true).err(),
-            Some("CANCELLED")
+            Some(ClientError::Helper(HelperError::Cancelled))
         );
         assert!(start.elapsed() < Duration::from_secs(1));
         fs::remove_dir_all(root).unwrap();

@@ -1,4 +1,4 @@
-use super::BridgeResult;
+use super::{BridgeResult, ClientError};
 use core_foundation::{
     array::{CFArray, CFArrayRef},
     base::TCFType,
@@ -19,17 +19,17 @@ unsafe extern "C" {
 }
 
 fn bundle_executable(url: CFURL) -> BridgeResult<PathBuf> {
-    let bundle = CFBundle::new(url).ok_or("Bundle not found")?;
+    let bundle = CFBundle::new(url).ok_or(ClientError::HelperStartFailed)?;
     // SAFETY: `bundle` is alive; the identifier is borrowed from it and may be null, which is checked next.
     let identifier = unsafe { CFBundleGetIdentifier(bundle.as_concrete_TypeRef()) };
     // SAFETY: `identifier` is non-null on this branch and owned by `bundle`; the get rule retains it.
     if identifier.is_null() || unsafe { CFString::wrap_under_get_rule(identifier) } != BUNDLE_ID {
-        return Err("Bundle identifier mismatch");
+        return Err(ClientError::HelperStartFailed);
     }
     bundle
         .executable_url()
         .and_then(|url| url.to_path())
-        .ok_or("Executable not found")
+        .ok_or(ClientError::HelperStartFailed)
 }
 
 pub(super) fn app_executable() -> BridgeResult<PathBuf> {
@@ -39,15 +39,17 @@ pub(super) fn app_executable() -> BridgeResult<PathBuf> {
         LSCopyApplicationURLsForBundleIdentifier(identifier.as_concrete_TypeRef(), ptr::null_mut())
     };
     if urls.is_null() {
-        return Err("KEYLET_APP_NOT_FOUND");
+        return Err(ClientError::AppNotFound);
     }
     // SAFETY: the copy returned an owned, non-null array, which the wrapper releases once.
     let urls: CFArray<CFURL> = unsafe { CFArray::wrap_under_create_rule(urls) };
     // macOS 10.15+ orders results with the preferred application first.
-    let url = urls.get(0).ok_or("KEYLET_APP_NOT_FOUND")?;
-    let selected = bundle_executable((*url).clone()).map_err(|_| "HELPER_START_FAILED")?;
+    let url = urls.get(0).ok_or(ClientError::AppNotFound)?;
+    let selected = bundle_executable((*url).clone())?;
     // A broken preferred copy never falls back to another executable.
-    selected.canonicalize().map_err(|_| "HELPER_START_FAILED")
+    selected
+        .canonicalize()
+        .map_err(|_| ClientError::HelperStartFailed)
 }
 
 #[cfg(test)]
@@ -82,7 +84,7 @@ mod tests {
             if valid {
                 assert_eq!(result.unwrap(), executable);
             } else {
-                assert_eq!(result, Err("Bundle identifier mismatch"));
+                assert_eq!(result, Err(ClientError::HelperStartFailed));
             }
             fs::remove_dir_all(root).unwrap();
         }

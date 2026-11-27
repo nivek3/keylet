@@ -283,8 +283,7 @@ impl WalletApp {
                         self.remember_summary(summary);
                     }
                     Err(error) => {
-                        self.account_view.message =
-                            format!("Address not copied ({}).", error.code());
+                        self.account_view.message = format!("Address not copied ({error}).");
                     }
                 }
             }

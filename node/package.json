@@ -56,6 +56,7 @@
     "prepack": "pnpm run build:release"
   },
   "devDependencies": {
+    "@noble/curves": "1.9.1",
     "@types/node": "^22.0.0",
     "typescript": "^5.9.0",
     "tsx": "^4.20.0",

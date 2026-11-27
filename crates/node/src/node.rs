@@ -1,7 +1,7 @@
 use napi::{Error, Result};
 use napi_derive::napi;
 use serde_json::Value;
-use wallet_client::KeyPair;
+use wallet_client::{ClientError, KeyPair};
 
 #[napi(object)]
 pub struct JsKeyPair {
@@ -23,7 +23,7 @@ pub async fn get_key_pair_for_test(input: Value, executable: String) -> Result<J
 }
 
 async fn read_key_pair(
-    request: impl FnOnce() -> std::result::Result<KeyPair, &'static str> + Send + 'static,
+    request: impl FnOnce() -> std::result::Result<KeyPair, ClientError> + Send + 'static,
 ) -> Result<JsKeyPair> {
     let pair = blocking(request).await?;
     let (public_key, private_key) = pair.into_hex();
@@ -87,13 +87,13 @@ pub async fn get_signer_public_key_for_test(
 }
 
 async fn blocking<T: Send + 'static>(
-    request: impl FnOnce() -> std::result::Result<T, &'static str> + Send + 'static,
+    request: impl FnOnce() -> std::result::Result<T, ClientError> + Send + 'static,
 ) -> Result<T> {
     // Authentication must not occupy Node's shared libuv worker pool.
     tokio::task::spawn_blocking(request)
         .await
         .map_err(|_| Error::from_reason("BRIDGE_ERROR"))?
-        .map_err(Error::from_reason)
+        .map_err(|error| Error::from_reason(error.to_string()))
 }
 
 fn signature(value: wallet_client::signer::Signature) -> JsSignature {

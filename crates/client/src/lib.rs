@@ -17,12 +17,16 @@ use wallet_crypto::{Curve, encode_hex, valid_wallet_name};
 use zeroize::Zeroizing;
 
 mod discovery;
+mod error;
 pub mod signer;
 
-type BridgeResult<T> = Result<T, &'static str>;
-/// Error returned when the wallet selection fails validation.
-pub const INVALID: &str = "Invalid wallet selection";
-const BAD_RESPONSE: &str = "INVALID_HELPER_RESPONSE";
+pub use error::ClientError;
+use error::{
+    ClientError::{InvalidHelperResponse, InvalidWalletSelection},
+    reported_error,
+};
+
+type BridgeResult<T> = Result<T, ClientError>;
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct Selection {
@@ -65,7 +69,7 @@ static SESSION: OnceLock<Mutex<Option<AppSession>>> = OnceLock::new();
 ///
 /// # Errors
 ///
-/// Returns a stable message for invalid input, discovery, transport, or app errors.
+/// Returns a client error for invalid input, discovery, transport, or app failures.
 pub fn key_pair(input: &Value, cancelled: impl Fn() -> bool) -> BridgeResult<KeyPair> {
     request(input, discovery::app_executable, cancelled)
 }
@@ -103,53 +107,61 @@ fn request(
 }
 
 fn validate(input: &Value) -> BridgeResult<(String, Curve, String, u64)> {
-    if input.as_object().ok_or(INVALID)?.keys().any(|key| {
-        !matches!(
-            key.as_str(),
-            "name" | "curve" | "index" | "path" | "authTTL"
-        )
-    }) {
-        return Err(INVALID);
+    if input
+        .as_object()
+        .ok_or(InvalidWalletSelection)?
+        .keys()
+        .any(|key| {
+            !matches!(
+                key.as_str(),
+                "name" | "curve" | "index" | "path" | "authTTL"
+            )
+        })
+    {
+        return Err(InvalidWalletSelection);
     }
-    let name = input.get("name").and_then(Value::as_str).ok_or(INVALID)?;
+    let name = input
+        .get("name")
+        .and_then(Value::as_str)
+        .ok_or(InvalidWalletSelection)?;
     let curve = match input.get("curve").and_then(Value::as_str) {
         Some("secp256k1") => Curve::Secp256k1,
         Some("ed25519") => Curve::Ed25519,
-        _ => return Err(INVALID),
+        _ => return Err(InvalidWalletSelection),
     };
     if !valid_wallet_name(name) {
-        return Err(INVALID);
+        return Err(InvalidWalletSelection);
     }
     let index = match input.get("index") {
         None => 0,
         Some(value) => {
-            let number = value.as_f64().ok_or(INVALID)?;
+            let number = value.as_f64().ok_or(InvalidWalletSelection)?;
             if !number.is_finite()
                 || number.fract() != 0.0
                 || !(0.0..2_147_483_648.0).contains(&number)
             {
-                return Err(INVALID);
+                return Err(InvalidWalletSelection);
             }
             number as u32
         }
     };
     if input.get("path").is_some() && input.get("index").is_some() {
-        return Err(INVALID);
+        return Err(InvalidWalletSelection);
     }
     let path = match input.get("path") {
-        Some(value) => value.as_str().ok_or(INVALID)?.to_owned(),
+        Some(value) => value.as_str().ok_or(InvalidWalletSelection)?.to_owned(),
         None if curve == Curve::Secp256k1 => format!("m/44'/60'/0'/0/{index}"),
-        None => return Err(INVALID),
+        None => return Err(InvalidWalletSelection),
     };
     if !curve.valid_wallet_path(&path) {
-        return Err(INVALID);
+        return Err(InvalidWalletSelection);
     }
     let authentication_ttl = match input.get("authTTL") {
         None => u64::MAX, // No caller cap: follow the app setting.
         Some(value) => value
             .as_f64()
             .filter(|value| (0.0..=9_007_199_254_740_991.0).contains(value) && value.fract() == 0.0)
-            .ok_or(INVALID)? as u64,
+            .ok_or(InvalidWalletSelection)? as u64,
     };
     Ok((name.to_owned(), curve, path, authentication_ttl))
 }
@@ -158,9 +170,9 @@ fn unlock(selection: &Selection, cancelled: impl Fn() -> bool) -> BridgeResult<K
     let mut session = SESSION
         .get_or_init(|| Mutex::new(None))
         .lock()
-        .map_err(|_| "KEYCHAIN_ERROR")?;
+        .map_err(|_| ClientError::Keychain)?;
     if cancelled() {
-        return Err("CANCELLED");
+        return Err(ClientError::Cancelled);
     }
     let reusable = match session.as_mut() {
         Some(helper)
@@ -169,7 +181,7 @@ fn unlock(selection: &Selection, cancelled: impl Fn() -> bool) -> BridgeResult<K
             helper
                 .child
                 .try_wait()
-                .map_err(|_| "TRANSPORT_ERROR")?
+                .map_err(|_| ClientError::Transport)?
                 .is_none()
         }
         _ => false,
@@ -178,7 +190,7 @@ fn unlock(selection: &Selection, cancelled: impl Fn() -> bool) -> BridgeResult<K
         *session = None;
         *session = Some(AppSession::start(selection)?);
     }
-    let result = session.as_mut().ok_or("TRANSPORT_ERROR")?.read_key(
+    let result = session.as_mut().ok_or(ClientError::Transport)?.read_key(
         selection,
         Duration::from_secs(120),
         cancelled,
@@ -206,7 +218,7 @@ fn nonblocking(fd: RawFd) -> BridgeResult<()> {
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
     // SAFETY: as above; only the status flags change.
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
-        return Err("TRANSPORT_ERROR");
+        return Err(ClientError::Transport);
     }
     Ok(())
 }
@@ -217,10 +229,10 @@ fn drain(reader: &mut impl Read, output: &mut Vec<u8>, limit: usize) -> BridgeRe
         match reader.read(&mut *chunk) {
             Ok(0) => return Ok(true),
             Ok(count) if output.len() + count <= limit => output.extend_from_slice(&chunk[..count]),
-            Ok(_) => return Err(BAD_RESPONSE),
+            Ok(_) => return Err(InvalidHelperResponse),
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return Ok(false),
-            Err(_) => return Err("TRANSPORT_ERROR"),
+            Err(_) => return Err(ClientError::Transport),
         }
     }
 }
@@ -244,7 +256,7 @@ impl Drop for AppSession {
 
 impl AppSession {
     fn start(selection: &Selection) -> BridgeResult<Self> {
-        let (secret, child_secret) = UnixStream::pair().map_err(|_| "TRANSPORT_ERROR")?;
+        let (secret, child_secret) = UnixStream::pair().map_err(|_| ClientError::Transport)?;
         let fd = child_secret.as_raw_fd();
         let mut command = helper_command(&selection.helper);
         command
@@ -263,12 +275,14 @@ impl AppSession {
                 Ok(())
             });
         }
-        let mut child = command.spawn().map_err(|_| "HELPER_START_FAILED")?;
+        let mut child = command
+            .spawn()
+            .map_err(|_| ClientError::HelperStartFailed)?;
         drop(child_secret);
         let streams = (|| {
-            let stdin = child.stdin.take().ok_or("TRANSPORT_ERROR")?;
-            let stdout = child.stdout.take().ok_or("TRANSPORT_ERROR")?;
-            let stderr = child.stderr.take().ok_or("TRANSPORT_ERROR")?;
+            let stdin = child.stdin.take().ok_or(ClientError::Transport)?;
+            let stdout = child.stdout.take().ok_or(ClientError::Transport)?;
+            let stderr = child.stderr.take().ok_or(ClientError::Transport)?;
             for fd in [secret.as_raw_fd(), stdout.as_raw_fd(), stderr.as_raw_fd()] {
                 nonblocking(fd)?;
             }
@@ -300,13 +314,13 @@ impl AppSession {
         cancelled: impl Fn() -> bool,
     ) -> BridgeResult<KeyPair> {
         let request = json!({"name": selection.name, "curve": selection.curve.name(), "path": selection.path});
-        writeln!(self.stdin, "{request}").map_err(|_| "TRANSPORT_ERROR")?;
+        writeln!(self.stdin, "{request}").map_err(|_| ClientError::Transport)?;
         let mut key = Zeroizing::new(Vec::with_capacity(32));
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let deadline = Instant::now() + timeout;
         loop {
             if cancelled() {
-                return Err("CANCELLED");
+                return Err(ClientError::Cancelled);
             }
             let key_done = drain(&mut self.secret, &mut key, 32)?;
             let out_done = drain(&mut self.stdout, &mut out, 2048)?;
@@ -314,46 +328,23 @@ impl AppSession {
             if key.len() == 32 && out.last() == Some(&b'\n') {
                 return parse_response(selection, &key, &out, &err);
             }
-            if let Some(status) = self.child.try_wait().map_err(|_| "TRANSPORT_ERROR")?
+            if let Some(status) = self.child.try_wait().map_err(|_| ClientError::Transport)?
                 && key_done
                 && out_done
                 && err_done
             {
                 return Err(if status.success() {
-                    BAD_RESPONSE
+                    InvalidHelperResponse
                 } else {
                     reported_error(&err)
                 });
             }
             if Instant::now() >= deadline {
-                return Err("AUTHENTICATION_TIMEOUT");
+                return Err(ClientError::AuthenticationTimeout);
             }
             thread::sleep(Duration::from_millis(10));
         }
     }
-}
-
-fn reported_error(bytes: &[u8]) -> &'static str {
-    let message = std::str::from_utf8(bytes).unwrap_or("").trim();
-    [
-        "CANCELLED",
-        "AUTHENTICATION_FAILED",
-        "NOT_FOUND",
-        "ALREADY_EXISTS",
-        "KEYCHAIN_ERROR",
-        "SIGNING_CONFIGURATION",
-        "SETTINGS_ERROR",
-        "INVALID_INPUT",
-        "INVALID_MNEMONIC",
-        "DERIVATION_FAILED",
-        "ADDRESS_MISMATCH",
-        "PUBLIC_KEY_MISMATCH",
-        "TRANSPORT_ERROR",
-        "INVALID_ITEM",
-    ]
-    .into_iter()
-    .find(|code| *code == message)
-    .unwrap_or("HELPER_FAILED")
 }
 
 fn parse_response(
@@ -362,19 +353,20 @@ fn parse_response(
     out: &[u8],
     err: &[u8],
 ) -> BridgeResult<KeyPair> {
-    let response: Value = serde_json::from_slice(out).map_err(|_| BAD_RESPONSE)?;
+    let response: Value = serde_json::from_slice(out).map_err(|_| InvalidHelperResponse)?;
     if response.get("name").and_then(Value::as_str) != Some(&selection.name)
         || response.get("curve").and_then(Value::as_str) != Some(selection.curve.name())
         || response.get("path").and_then(Value::as_str) != Some(&selection.path)
         || !err.iter().all(u8::is_ascii_whitespace)
     {
-        return Err(BAD_RESPONSE);
+        return Err(InvalidHelperResponse);
     }
-    let private: Zeroizing<[u8; 32]> = Zeroizing::new(key.try_into().map_err(|_| BAD_RESPONSE)?);
+    let private: Zeroizing<[u8; 32]> =
+        Zeroizing::new(key.try_into().map_err(|_| InvalidHelperResponse)?);
     let public = match selection.curve {
         Curve::Secp256k1 => {
-            let signing =
-                k256::ecdsa::SigningKey::from_slice(&*private).map_err(|_| BAD_RESPONSE)?;
+            let signing = k256::ecdsa::SigningKey::from_slice(&*private)
+                .map_err(|_| InvalidHelperResponse)?;
             signing
                 .verifying_key()
                 .to_sec1_point(true)
@@ -388,7 +380,7 @@ fn parse_response(
     };
     let public = encode_hex(&public);
     if response.get("publicKey").and_then(Value::as_str) != Some(&public) {
-        return Err(BAD_RESPONSE);
+        return Err(InvalidHelperResponse);
     }
     Ok(KeyPair { private, public })
 }
@@ -452,7 +444,7 @@ mod tests {
             json!({"name":"test", "curve":"secp256k1", "unknown":true}),
             json!({"name":"test", "curve":"secp256k1", "path":null}),
         ] {
-            assert!(matches!(validate(&input), Err(INVALID)));
+            assert!(matches!(validate(&input), Err(InvalidWalletSelection)));
         }
         for index in [
             json!(-1),
@@ -463,7 +455,7 @@ mod tests {
         ] {
             assert!(matches!(
                 validate(&json!({"name":"test", "curve":"secp256k1", "index":index})),
-                Err(INVALID)
+                Err(InvalidWalletSelection)
             ));
         }
     }
@@ -509,9 +501,10 @@ mod tests {
         response["curve"] = json!("ed25519");
         response["publicKey"] = json!(encode_hex(&[0; 32]));
         assert!(parse_response(&selection, &key, response.to_string().as_bytes(), b"").is_err());
+        assert_eq!(reported_error(b"INTERNAL_ERROR\n"), ClientError::Internal);
         assert_eq!(
             reported_error(b"untrusted exception and pretend secret"),
-            "HELPER_FAILED"
+            ClientError::HelperFailed
         );
     }
 
@@ -535,7 +528,7 @@ mod tests {
             || false,
         );
         // Report the actual code if this ever fails (seen once on CI).
-        assert_eq!(result.err(), Some("AUTHENTICATION_TIMEOUT"));
+        assert_eq!(result.err(), Some(ClientError::AuthenticationTimeout));
         assert!(start.elapsed() < Duration::from_secs(1));
         fs::remove_dir_all(root).unwrap();
     }
@@ -557,13 +550,19 @@ mod tests {
             path: "m/0'".into(),
             authentication_ttl: 300,
         };
-        assert!(matches!(unlock(&selection, || false), Err("CANCELLED")));
+        assert!(matches!(
+            unlock(&selection, || false),
+            Err(ClientError::Cancelled)
+        ));
         fs::write(
             &helper,
             "#!/bin/sh\nread request\nprintf 'NOT_FOUND\\n' >&2\nexit 1\n",
         )
         .unwrap();
-        assert!(matches!(unlock(&selection, || false), Err("NOT_FOUND")));
+        assert!(matches!(
+            unlock(&selection, || false),
+            Err(ClientError::NotFound)
+        ));
         fs::remove_dir_all(root).unwrap();
     }
 }
